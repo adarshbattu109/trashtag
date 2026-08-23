@@ -1,9 +1,10 @@
 """The TrashTag FastAPI app: serves the ops dashboard and exposes issue data over both
 HTTP and MCP (so an LLM agent can query the same detections a reviewer sees)."""
 
+import asyncio
 import logging
 import os
-from contextlib import closing
+from contextlib import asynccontextmanager, closing
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query
@@ -17,9 +18,13 @@ from trashtag.constants.constants import (
     TAGLINE,
     VERSION,
 )
+from trashtag.helper.config import WORKER_ENABLED, WORKER_POLL_SECONDS
 from trashtag.helper.helper import mock_issue_rows
 from trashtag.pipeline import db
+from trashtag.pipeline.detector import get_detector
 from trashtag.pipeline.ingest import router as ingest_router
+from trashtag.pipeline.store import FilesystemMediaStore
+from trashtag.pipeline.worker import run_worker_tick
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +48,31 @@ def _conn():
     return conn
 
 
-app = FastAPI(title=APP_NAME, description=TAGLINE, version=VERSION)
+def _tick(detector):
+    """Run one worker tick: drain pending reports, close the connection."""
+    with closing(_conn()) as conn:
+        return run_worker_tick(conn, FilesystemMediaStore(), detector)
+
+
+async def _worker_loop():
+    detector = get_detector()
+    while True:
+        try:
+            await asyncio.to_thread(_tick, detector)
+        except Exception:
+            logger.exception("worker loop tick failed")
+        await asyncio.sleep(WORKER_POLL_SECONDS)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    task = asyncio.create_task(_worker_loop()) if WORKER_ENABLED else None
+    yield
+    if task:
+        task.cancel()
+
+
+app = FastAPI(title=APP_NAME, description=TAGLINE, version=VERSION, lifespan=lifespan)
 
 
 @app.get("/", include_in_schema=False)
