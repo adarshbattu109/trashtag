@@ -7,7 +7,7 @@ import os
 from contextlib import asynccontextmanager, closing
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi_mcp import FastApiMCP
 
@@ -121,6 +121,23 @@ def read_issue(issue_id: str):
     if issue is None:
         raise HTTPException(404, f"No issue with ID '{issue_id}'.")
     return issue
+
+
+@app.get("/v1/issues/{issue_id}/evidence", operation_id="issue_evidence")
+def issue_evidence(issue_id: str):
+    """Serve the issue's primary evidence photo (internal ops use; public exposure requires
+    the face/plate blur gate — out of scope here)."""
+    with closing(_conn()) as conn:
+        media_path = db.issue_evidence_media(conn, issue_id)
+    if not media_path:
+        raise HTTPException(404, f"No evidence media for issue '{issue_id}'.")
+    try:
+        data = FilesystemMediaStore().open(media_path)
+    except FileNotFoundError:
+        raise HTTPException(404, "Evidence media file is missing.")
+    return Response(
+        content=data, media_type="image/jpeg", headers={"Cache-Control": "no-cache"}
+    )
 
 
 # §2.1 ingestion: citizen-report intake. POST /v1/reports stores media + enqueues for the
