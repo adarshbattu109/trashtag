@@ -124,10 +124,28 @@ def read_issue(issue_id: str):
     return issue
 
 
+def _thumbnail(data: bytes, max_edge: int) -> bytes:
+    """Downscale image to max_edge px (longest side). Fallback: return original if not an image."""
+    from io import BytesIO
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        im = Image.open(BytesIO(data))
+        im.load()
+        im = im.convert("RGB")
+        im.thumbnail((max_edge, max_edge), Image.Resampling.LANCZOS)
+        buf = BytesIO()
+        im.save(buf, "JPEG", quality=80)
+        return buf.getvalue()
+    except UnidentifiedImageError, OSError, ValueError:
+        return data
+
+
 @app.get("/v1/issues/{issue_id}/evidence", operation_id="issue_evidence")
-def issue_evidence(issue_id: str):
+def issue_evidence(issue_id: str, w: int | None = Query(default=None, ge=16, le=4096)):
     """Serve the issue's primary evidence photo (internal ops use; public exposure requires
-    the face/plate blur gate — out of scope here)."""
+    the face/plate blur gate — out of scope here). Optional ?w= param downscales to thumbnail."""
     with closing(_conn()) as conn:
         media_path = db.issue_evidence_media(conn, issue_id)
     if not media_path:
@@ -136,8 +154,12 @@ def issue_evidence(issue_id: str):
         data = FilesystemMediaStore().open(media_path)
     except FileNotFoundError:
         raise HTTPException(404, "Evidence media file is missing.")
+    if w:
+        data = _thumbnail(data, w)
     return Response(
-        content=data, media_type="image/jpeg", headers={"Cache-Control": "no-cache"}
+        content=data,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
 
 

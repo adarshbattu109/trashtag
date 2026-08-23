@@ -106,3 +106,104 @@ def test_evidence_file_gone_404(client):
     client_obj, _, gone_issue_id = client
     # Media row exists but the file on disk does not -> 404, not a 500.
     assert client_obj.get(f"/v1/issues/{gone_issue_id}/evidence").status_code == 404
+
+
+def test_evidence_thumbnail_real_jpeg(tmp_path, monkeypatch):
+    """Thumbnail param ?w= on a real JPEG returns resized image."""
+    from PIL import Image
+
+    from trashtag.pipeline import db
+    from trashtag.pipeline.models import (
+        IssueClass,
+        RawDetection,
+        Report,
+        Severity,
+        new_id,
+        now_iso,
+    )
+    from trashtag.pipeline.store import FilesystemMediaStore
+
+    monkeypatch.setenv("TRASHTAG_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("TRASHTAG_DB", str(tmp_path / "t.db"))
+
+    # Reload modules
+    import sys
+
+    for mod in [
+        "trashtag.constants.filepaths",
+        "trashtag.pipeline.store",
+        "trashtag.app.serve",
+    ]:
+        if mod in sys.modules:
+            del sys.modules[mod]
+
+    media_store = FilesystemMediaStore(tmp_path / "media")
+
+    # Create a real test JPEG (1000x800)
+    test_img = Image.new("RGB", (1000, 800), "red")
+    from io import BytesIO
+
+    buf = BytesIO()
+    test_img.save(buf, "JPEG", quality=90)
+    jpeg_bytes = buf.getvalue()
+
+    media_store.save(jpeg_bytes, "rpt_real.jpg")
+
+    conn = db.get_conn(str(tmp_path / "t.db"))
+    db.init_db(conn)
+    db.insert_report(
+        conn,
+        Report(
+            id="rpt_real",
+            media_path="rpt_real.jpg",
+            lat=18.52,
+            lng=73.85,
+            captured_at=now_iso(),
+        ),
+    )
+    det = RawDetection(
+        id=new_id("det"),
+        report_id="rpt_real",
+        cls=IssueClass.POTHOLE,
+        confidence=0.9,
+        lat=18.52,
+        lng=73.85,
+        captured_at=now_iso(),
+        severity=Severity.MEDIUM,
+    )
+    db.insert_raw_detection(conn, det)
+    issue_id = db.create_issue_from(conn, det)
+    conn.close()
+
+    from fastapi.testclient import TestClient
+
+    from trashtag.app.serve import app
+
+    client = TestClient(app)
+
+    # Request thumbnail
+    r = client.get(f"/v1/issues/{issue_id}/evidence?w=600")
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/jpeg"
+
+    # Verify it's a valid JPEG and resized
+    thumb_img = Image.open(BytesIO(r.content))
+    assert max(thumb_img.width, thumb_img.height) <= 600
+    assert thumb_img.format == "JPEG"
+
+
+def test_evidence_cache_control_immutable(client):
+    """Evidence endpoint returns Cache-Control with immutable."""
+    client_obj, issue_id, _ = client
+    r = client_obj.get(f"/v1/issues/{issue_id}/evidence")
+    assert r.status_code == 200
+    assert "immutable" in r.headers.get("cache-control", "").lower()
+
+
+def test_evidence_thumbnail_fallback_on_non_image(client):
+    """Thumbnail param ?w= on non-image bytes returns original (fallback, no 500)."""
+    client_obj, issue_id, _ = client
+    # The fixture stores dummy bytes b"JPEGBYTES" which are not a real image
+    r = client_obj.get(f"/v1/issues/{issue_id}/evidence?w=600")
+    assert r.status_code == 200
+    assert r.content == b"JPEGBYTES"  # original bytes, not a resize attempt
