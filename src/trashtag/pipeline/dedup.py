@@ -16,7 +16,9 @@ from trashtag.pipeline.db import (
 )
 from trashtag.pipeline.geo import haversine
 
-CLUSTER_RADIUS_M = 15.0
+# Minimum gap between two distinct issues. Detections within this radius of an open
+# same-class issue are merged as evidence; distinct issues are >=10m apart (product decision).
+CLUSTER_RADIUS_M = 10.0
 
 
 def cluster_pending(
