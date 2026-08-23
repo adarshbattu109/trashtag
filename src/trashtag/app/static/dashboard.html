@@ -337,6 +337,18 @@ body{
   font-family:var(--display);font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:.05em;
   border:1px solid var(--stamp-red);color:var(--stamp-red);background:transparent;border-radius:3px;padding:3px 8px;cursor:pointer;
 }
+
+/* ---- toast ---- */
+.toast{
+  position:fixed;bottom:20px;right:20px;z-index:3000;
+  background:var(--asphalt-700);color:var(--chalk-100);
+  border:1px solid var(--line);border-radius:4px;
+  padding:12px 16px;font-size:13px;max-width:360px;
+  box-shadow:0 8px 22px rgba(0,0,0,.5);
+  animation:toast-in .2s ease-out;
+}
+@keyframes toast-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
 .hidden{display:none !important}
 
 /* ---- responsive ---- */
@@ -521,6 +533,14 @@ async function loadIssues() {
   renderAll();
 }
 
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
 async function updateIssue(id, patch) {
   const res = await fetch(`/v1/issues/${id}`, {
     method: 'PATCH',
@@ -529,7 +549,7 @@ async function updateIssue(id, patch) {
   });
   if (!res.ok) {
     const msg = res.status === 422 ? 'That change isn\'t allowed.' : 'Try again.';
-    alert(`Couldn't update ${id}. ${msg}`);
+    toast(`Couldn't update ${id}. ${msg}`);
     return;
   }
   await loadIssues();
@@ -590,6 +610,11 @@ function evidenceSvg(issue){
   </svg>`;
 }
 
+function evidenceFallback(img){
+  const issue = issues.find(i => i.id === img.dataset.id);
+  if (issue) img.outerHTML = evidenceSvg(issue);
+}
+
 // ---- render: docket queue ----
 const queueList = document.getElementById("queue-list");
 const queueCount = document.getElementById("queue-count");
@@ -604,7 +629,7 @@ function docketHTML(issue){
     <button class="docket__btn docket__btn--verify" data-act="verify" data-id="${issue.id}" ${issue.status==="verified"||issue.status==="rejected"?"disabled":""}>Verify</button>
     <button class="docket__btn docket__btn--reject" data-act="reject" data-id="${issue.id}" ${issue.status==="rejected"?"disabled":""}>Reject</button>
     <button class="docket__btn docket__btn--merge" data-act="merge" data-id="${issue.id}">Merge with nearby</button>`;
-  const evidenceImg = `<img class="docket__photo" src="/v1/issues/${issue.id}/evidence?w=600" alt="evidence for ${issue.id}" onerror="this.outerHTML=\`${evidenceSvg(issue).replace(/`/g,'\\`')}\`">`;
+  const evidenceImg = `<img class="docket__photo" src="/v1/issues/${issue.id}/evidence?w=600" alt="evidence for ${issue.id}" data-id="${issue.id}" onerror="evidenceFallback(this)">`;
   return `
   <article class="docket docket--${issue.class} ${issue.status==="new"?"docket--new":""} ${state.selected===issue.id?"docket--selected":""}"
            data-id="${issue.id}" tabindex="0" aria-label="Detection ${issue.id}, ${issue.class}, status ${STATUS_LABEL[issue.status]}">
@@ -767,7 +792,7 @@ function applyAction(id, act){
   else if(act === "merge") updateIssue(id, {status: 'rejected', note: 'merged: duplicate of nearby'});
 }
 
-function renderAll(){ renderQueue(); renderMap(); renderFiled(); }
+function renderAll(){ renderQueue(); renderMap(); renderFiled(); updatePending(); }
 
 // ================= EVENTS =================
 // filter: class
@@ -838,9 +863,9 @@ document.getElementById("drawer-toggle").addEventListener("click", e => {
 });
 
 // ================= SUBMIT REPORT MODAL =================
-// Citizen report flow. On success the report enters the pipeline DB (§2.1); the dashboard's
-// own queue keeps showing MOCK_ISSUES until /v1/issues is wired to the pipeline (separate step),
-// so a freshly submitted report will NOT appear in the queue yet — that's expected.
+// Citizen report flow. On success the report enters the pipeline DB (§2.1); the dashboard
+// fetches live from /v1/issues, so a freshly submitted report appears after a worker poll
+// (~5s) + manual page refresh.
 (function(){
   const modal = document.getElementById("submit-modal");
   const openBtn = document.getElementById("open-submit");
