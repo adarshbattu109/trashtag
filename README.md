@@ -220,7 +220,9 @@ Filing-adapter research: [CPGRAMS/architecture §2.4](docs/civic-vision-architec
 
 ## Documentation
 
+- 🧭 **[Project status — resume here](docs/PROJECT-STATUS.md)** (branch map, what's done, what's next, locked decisions)
 - 📐 [Architecture & build plan](docs/civic-vision-architecture-plan.md)
+- 🗺️ [V2 design spec](docs/v2-design-spec.md) · [V2.1 citizen view](docs/v2.1-citizen-view-design.md) · [V2.2 trip/dashcam mode](docs/v2.2-trip-mode-design.md)
 - 🎨 [Dashboard design spec](docs/civic-vision-dashboard-design-spec.md)
 - 🔬 [Research: Qwen2.5/3-VL detector](docs/research/qwen2.5-vl-detector.md) · [Research: I Change My City adapter](docs/research/ichangemycity-filing-adapter.md)
 - 🔒 [Security policy](SECURITY.md) · 🤝 [Contributing](CONTRIBUTING.md) · 📜 [Code of Conduct](CODE_OF_CONDUCT.md)
