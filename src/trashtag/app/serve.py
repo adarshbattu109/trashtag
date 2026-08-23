@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from fastapi_mcp import FastApiMCP
+from pydantic import BaseModel
 
 from trashtag.constants.constants import (
     APP_NAME,
@@ -138,6 +139,31 @@ def issue_evidence(issue_id: str):
     return Response(
         content=data, media_type="image/jpeg", headers={"Cache-Control": "no-cache"}
     )
+
+
+class IssueUpdate(BaseModel):
+    status: str | None = None
+    severity: str | None = None
+    note: str | None = None
+
+
+@app.patch("/v1/issues/{issue_id}", operation_id="update_issue")
+def update_issue_endpoint(issue_id: str, body: IssueUpdate):
+    """Update an issue's status/severity/note (reviewer action). 422 on an illegal lifecycle
+    move or invalid value; 404 if the issue does not exist."""
+    with closing(_conn()) as conn:
+        try:
+            return db.update_issue(
+                conn,
+                issue_id,
+                status=body.status,
+                severity=body.severity,
+                note=body.note,
+            )
+        except KeyError:
+            raise HTTPException(404, f"No issue with ID '{issue_id}'.")
+        except ValueError as e:
+            raise HTTPException(422, str(e))
 
 
 # §2.1 ingestion: citizen-report intake. POST /v1/reports stores media + enqueues for the
