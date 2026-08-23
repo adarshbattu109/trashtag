@@ -1,6 +1,6 @@
 [project]
 name = "trashtag"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tag the trash. Flag the roads. — civic pothole & garbage-dump reporting platform"
 readme = "README.md"
 authors = [
