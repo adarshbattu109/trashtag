@@ -225,7 +225,10 @@ requirements.txt
 
 # Local agent/session scratch (ledgers, review artifacts) — not part of the repo.
 .superpowers/
-.claude/
+# Share project Claude config (settings.json, CLAUDE.md) but keep personal + local scratch out.
+.claude/*
+!.claude/settings.json
+.claude/settings.local.json
 
 # macOS
 .DS_Store
