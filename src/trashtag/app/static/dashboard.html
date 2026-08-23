@@ -1,0 +1,1065 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TrashTag — Field Ops Dashboard · Tag the trash. Flag the roads.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- CDN deps: this intentionally introduces external dependencies (Leaflet + OSM/CARTO tiles,
+     Leaflet.markercluster, exifr), overriding the old zero-dependency stylized SVG map.
+     Per architecture §3.2 (Leaflet/OSM choice) — a real pan/zoom slippy map beats a hand-drawn one. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr/dist/full.umd.js"></script>
+<style>
+:root{
+  --asphalt-900:#15181A;
+  --asphalt-700:#1F2326;
+  --asphalt-600:#272C30;
+  --concrete-400:#8A9095;
+  --chalk-100:#EDEFEC;
+  --hazard-yellow:#F2B705;
+  --waste-green:#4C8C5C;
+  --survey-blue:#5C8AA8;
+  --stamp-red:#C5533A;
+  --line:#333A3F;
+  --display:"Barlow Condensed","Arial Narrow",Impact,sans-serif;
+  --body:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;
+  background:var(--asphalt-900);
+  color:var(--chalk-100);
+  font-family:var(--body);
+  font-size:15px;
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ---- focus (accessibility floor) ---- */
+:focus-visible{
+  outline:2px solid var(--hazard-yellow);
+  outline-offset:2px;
+  border-radius:2px;
+}
+
+/* ---- status strip ---- */
+.strip{
+  display:flex;align-items:center;gap:24px;
+  padding:10px 20px;
+  background:var(--asphalt-700);
+  border-bottom:1px solid var(--line);
+  flex-wrap:wrap;
+}
+.strip__brand{display:flex;flex-direction:column;line-height:1}
+.strip__wordmark{
+  font-family:var(--display);
+  font-weight:700;
+  font-size:30px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+.strip__wordmark span{color:var(--hazard-yellow)}
+.strip__tagline{
+  font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--concrete-400);margin-top:3px;
+}
+.strip__city{display:flex;align-items:center;gap:8px}
+.strip__label{font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--concrete-400)}
+.strip__count{
+  margin-left:auto;display:flex;align-items:center;gap:9px;
+  font-family:var(--mono);font-size:13px;letter-spacing:.03em;
+}
+.strip__dot{width:9px;height:9px;border-radius:50%;background:var(--hazard-yellow)}
+.strip__count b{font-size:16px;color:var(--hazard-yellow);font-family:var(--display);font-weight:700}
+.strip__views{display:flex;gap:0;border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.strip__view-btn{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.08em;font-weight:600;
+  font-size:14px;padding:6px 14px;background:transparent;color:var(--concrete-400);
+  border:0;cursor:pointer;
+}
+.strip__view-btn[aria-pressed="true"]{background:var(--asphalt-600);color:var(--chalk-100)}
+
+/* form controls (shared, class-based to avoid specificity clashes) */
+.select,.dateinput{
+  font-family:var(--mono);font-size:13px;
+  background:var(--asphalt-600);color:var(--chalk-100);
+  border:1px solid var(--line);border-radius:3px;padding:6px 8px;
+}
+
+/* ---- layout ---- */
+.layout{
+  display:grid;
+  grid-template-columns:230px 1fr 400px;
+  height:calc(100vh - 62px);
+  min-height:0;
+}
+.layout--filed{grid-template-columns:230px 1fr}
+
+/* ---- filter rail ---- */
+.rail{
+  background:var(--asphalt-700);
+  border-right:1px solid var(--line);
+  padding:18px 16px;
+  overflow-y:auto;
+}
+.rail__group{margin-bottom:22px}
+.rail__legend{
+  font-family:var(--display);font-weight:600;font-size:15px;
+  text-transform:uppercase;letter-spacing:.1em;color:var(--chalk-100);
+  border:0;padding:0;margin:0 0 10px;
+}
+.rail__opt{display:flex;align-items:center;gap:9px;padding:4px 0;font-size:14px;cursor:pointer}
+.rail__opt input{accent-color:var(--hazard-yellow);width:16px;height:16px;cursor:pointer}
+.rail__swatch{width:11px;height:11px;border-radius:2px;flex:none}
+.rail__swatch--pothole{background:var(--hazard-yellow)}
+.rail__swatch--garbage{background:var(--waste-green)}
+.rail__dates{display:flex;flex-direction:column;gap:8px}
+.rail__dates label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--concrete-400)}
+.rail__reset{
+  font-family:var(--body);font-size:12px;color:var(--survey-blue);
+  background:none;border:0;cursor:pointer;padding:0;text-decoration:underline;
+}
+
+/* ---- map pane (Leaflet) ---- */
+.map{position:relative;background:var(--asphalt-900);overflow:hidden}
+#map{position:absolute;inset:0}
+/* dark-theme Leaflet chrome to match the night-patrol palette */
+.leaflet-container{background:var(--asphalt-900);font-family:var(--body)}
+.leaflet-bar a,.leaflet-bar a:hover{
+  background:var(--asphalt-700);color:var(--chalk-100);border-bottom:1px solid var(--line);
+}
+.leaflet-bar a:hover{background:var(--asphalt-600)}
+.leaflet-touch .leaflet-bar{border:1px solid var(--line)}
+.leaflet-popup-content-wrapper,.leaflet-popup-tip{
+  background:var(--asphalt-700);color:var(--chalk-100);
+  border:1px solid var(--line);box-shadow:0 8px 22px rgba(0,0,0,.5);
+}
+.leaflet-popup-content-wrapper{border-radius:4px}
+.leaflet-popup-close-button{color:var(--concrete-400)!important}
+.leaflet-control-attribution{background:rgba(21,24,26,.82)!important;color:var(--concrete-400)!important}
+.leaflet-control-attribution a{color:var(--survey-blue)!important}
+/* class markers: shape glyph + class letter so class is never signalled by colour alone */
+.tt-marker{display:flex;align-items:center;justify-content:center;gap:1px;line-height:1;font-family:var(--mono);font-weight:700}
+.tt-marker__glyph{font-size:19px;text-shadow:0 0 2px #000,0 1px 2px #000}
+.tt-marker__letter{font-size:10px;color:var(--chalk-100);text-shadow:0 0 2px #000,0 0 3px #000}
+.tt-marker--selected{filter:drop-shadow(0 0 3px var(--chalk-100)) drop-shadow(0 0 3px var(--chalk-100))}
+/* markercluster discs → survey-blue */
+.marker-cluster{background:transparent}
+.marker-cluster div{
+  background:var(--survey-blue);color:var(--asphalt-900);border:2px solid var(--asphalt-900);
+  font-family:var(--mono);font-weight:600;
+}
+.tt-popup__id{font-family:var(--mono);font-weight:600;color:var(--hazard-yellow);margin-bottom:2px}
+.tt-popup__row{font-size:13px}
+.tt-popup__addr{color:var(--concrete-400);font-size:12px;margin-top:4px}
+.map__legend{
+  position:absolute;right:14px;top:14px;z-index:1000;background:rgba(31,35,38,.9);
+  border:1px solid var(--line);border-radius:4px;padding:9px 11px;
+  font-size:12px;display:flex;flex-direction:column;gap:6px;
+}
+.map__legend-row{display:flex;align-items:center;gap:8px}
+.map__legend-row i{width:14px;flex:none;display:inline-flex;justify-content:center;font-family:var(--mono);font-weight:700}
+
+/* ---- submit-report modal ---- */
+.strip__submit{
+  font-family:var(--display);text-transform:uppercase;letter-spacing:.08em;font-weight:600;font-size:14px;
+  padding:6px 14px;background:var(--hazard-yellow);color:var(--asphalt-900);
+  border:0;border-radius:3px;cursor:pointer;
+}
+.modal{
+  position:fixed;inset:0;z-index:2000;display:flex;align-items:flex-start;justify-content:center;
+  padding:5vh 16px;overflow-y:auto;background:rgba(10,12,13,.72);
+}
+.modal__box{
+  background:var(--asphalt-700);border:1px solid var(--line);border-radius:5px;
+  width:100%;max-width:460px;padding:22px 22px 24px;
+  animation:modal-in .18s ease-out;
+}
+@keyframes modal-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+.modal__head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.modal__title{font-family:var(--display);font-weight:700;font-size:22px;text-transform:uppercase;letter-spacing:.06em;margin:0}
+.modal__close{background:none;border:0;color:var(--concrete-400);font-size:22px;cursor:pointer;line-height:1;padding:2px 6px}
+.modal__sub{color:var(--concrete-400);font-size:13px;margin:0 0 16px}
+.modal__field{margin-bottom:15px}
+.modal__label{display:block;font-family:var(--display);font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+.modal__row{display:flex;gap:8px}
+.modal__row .dateinput{flex:1;min-width:0}
+.modal__btn{
+  font-family:var(--display);font-weight:600;font-size:13px;text-transform:uppercase;letter-spacing:.06em;
+  padding:8px 12px;border:1px solid var(--line);background:var(--asphalt-600);color:var(--chalk-100);
+  border-radius:3px;cursor:pointer;
+}
+.modal__btn:disabled{opacity:.4;cursor:not-allowed}
+.modal__btn--primary{background:var(--hazard-yellow);color:var(--asphalt-900);border-color:var(--hazard-yellow);width:100%;font-size:15px;padding:11px}
+.modal__hint{font-size:12px;color:var(--concrete-400);margin-top:6px}
+.modal__hint--error{color:var(--stamp-red)}
+.modal__hint--ok{color:var(--waste-green)}
+.modal__source{font-family:var(--mono);font-size:12px;color:var(--survey-blue);margin-top:6px}
+.modal__file{font-family:var(--mono);font-size:12px;color:var(--chalk-100)}
+.modal__cam{width:100%;border-radius:3px;margin-top:8px;background:#000;display:block}
+.modal__preview{max-width:100%;max-height:180px;border-radius:3px;margin-top:8px;border:1px solid var(--line)}
+.modal__classopts{display:flex;gap:16px}
+.modal__classopts label{display:flex;align-items:center;gap:7px;font-size:14px;cursor:pointer}
+.modal__classopts input{accent-color:var(--hazard-yellow);width:16px;height:16px}
+
+/* ---- docket queue ---- */
+.queue{
+  background:var(--asphalt-900);
+  border-left:1px solid var(--line);
+  overflow-y:auto;
+  padding:16px 16px 40px;
+}
+.queue__head{
+  font-family:var(--display);font-weight:600;font-size:16px;text-transform:uppercase;
+  letter-spacing:.1em;color:var(--concrete-400);margin:0 0 14px;
+  display:flex;justify-content:space-between;align-items:baseline;
+}
+.queue__head span{font-family:var(--mono);font-size:12px}
+.queue__empty{
+  border:1px dashed var(--line);border-radius:4px;
+  padding:34px 20px;text-align:center;color:var(--concrete-400);
+  font-size:15px;
+}
+
+/* ---- docket card ---- */
+.docket{
+  position:relative;
+  background:var(--asphalt-700);
+  border:1px solid var(--line);
+  margin-bottom:18px;
+  transition:transform .12s ease, box-shadow .12s ease;
+  /* torn / perforated top edge */
+  -webkit-mask:radial-gradient(6px at 6px 100%, transparent 98%, #000) 0 100%/14px 100% repeat-x, linear-gradient(#000,#000) 0 0/100% calc(100% - 6px) no-repeat;
+          mask:radial-gradient(6px at 6px 100%, transparent 98%, #000) 0 100%/14px 100% repeat-x, linear-gradient(#000,#000) 0 0/100% calc(100% - 6px) no-repeat;
+}
+.docket:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(0,0,0,.4)}
+.docket--selected{border-color:var(--hazard-yellow)}
+.docket--new{border-left:3px solid var(--hazard-yellow)}
+.docket--garbage.docket--new{border-left-color:var(--waste-green)}
+
+.docket__stamp{
+  position:absolute;top:12px;right:12px;z-index:2;
+  font-family:var(--display);font-weight:700;font-size:15px;letter-spacing:.1em;
+  text-transform:uppercase;padding:6px 10px;
+  border:2px double currentColor;border-radius:50px;
+  mix-blend-mode:screen;pointer-events:none;
+}
+.docket__stamp--new{color:var(--hazard-yellow)}
+.docket__stamp--verified{color:var(--waste-green)}
+.docket__stamp--filed{color:var(--survey-blue)}
+.docket__stamp--rejected{color:var(--stamp-red)}
+/* per-card randomized rotation, fixed (not per-render) */
+.docket:nth-child(3n+1) .docket__stamp{transform:rotate(-0.5deg)}
+.docket:nth-child(3n+2) .docket__stamp{transform:rotate(0.6deg)}
+.docket:nth-child(3n)   .docket__stamp{transform:rotate(-0.3deg)}
+
+.docket__photo{height:118px;display:block;border-bottom:1px dashed var(--line)}
+.docket__body{padding:12px 14px 14px}
+.docket__classline{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.docket__classdot{width:10px;height:10px;border-radius:2px;flex:none}
+.docket__classdot--pothole{background:var(--hazard-yellow)}
+.docket__classdot--garbage{background:var(--waste-green)}
+.docket__class{
+  font-family:var(--display);font-weight:600;font-size:16px;text-transform:uppercase;letter-spacing:.06em;
+}
+.docket__sev{
+  font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:2px 6px;border-radius:2px;
+  border:1px solid var(--line);color:var(--concrete-400);
+}
+.docket__sev--high{color:var(--hazard-yellow);border-color:var(--hazard-yellow)}
+.docket__sev--medium,.docket__sev--low{color:var(--concrete-400);border-color:var(--line)}
+.docket__addr{font-size:13px;color:var(--chalk-100);margin-bottom:10px}
+.docket__data{
+  font-family:var(--mono);font-size:12px;color:var(--concrete-400);
+  border-top:1px solid var(--line);border-bottom:1px solid var(--line);
+  padding:8px 0;margin-bottom:11px;
+  display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;letter-spacing:.02em;
+}
+.docket__data b{color:var(--chalk-100);font-weight:500}
+.docket__actions{display:flex;gap:8px}
+.docket__btn{
+  flex:1;font-family:var(--display);font-weight:600;font-size:14px;text-transform:uppercase;letter-spacing:.06em;
+  padding:8px 4px;border:1px solid var(--line);background:var(--asphalt-600);color:var(--chalk-100);
+  border-radius:3px;cursor:pointer;
+}
+.docket__btn--verify:hover{border-color:var(--waste-green);color:var(--waste-green)}
+.docket__btn--reject:hover{border-color:var(--stamp-red);color:var(--stamp-red)}
+.docket__btn--merge:hover{border-color:var(--survey-blue);color:var(--survey-blue)}
+.docket__btn:disabled{opacity:.4;cursor:default}
+.docket__resolved-note{font-size:12px;color:var(--concrete-400);font-style:italic}
+
+/* live slide-in */
+@keyframes docket-in{
+  0%{transform:translateY(-14px);opacity:0}
+  100%{transform:translateY(0);opacity:1}
+}
+@keyframes edge-flash{
+  0%,100%{box-shadow:inset 3px 0 0 transparent}
+  30%{box-shadow:inset 3px 0 0 var(--hazard-yellow)}
+}
+.docket--incoming{animation:docket-in .3s ease-out, edge-flash 1.1s ease-out}
+.docket--incoming.docket--garbage{animation:docket-in .3s ease-out, edge-flash-green 1.1s ease-out}
+@keyframes edge-flash-green{
+  0%,100%{box-shadow:inset 3px 0 0 transparent}
+  30%{box-shadow:inset 3px 0 0 var(--waste-green)}
+}
+/* staggered load, capped at 6 */
+@keyframes fade-up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.docket--stagger{animation:fade-up .28s ease-out both}
+
+/* ---- filed log ---- */
+.filed{padding:20px 24px;overflow-y:auto}
+.filed__title{font-family:var(--display);font-weight:600;font-size:22px;text-transform:uppercase;letter-spacing:.08em;margin:0 0 4px}
+.filed__sub{color:var(--concrete-400);font-size:13px;margin:0 0 18px}
+.filed__table{width:100%;border-collapse:collapse;font-size:13px}
+.filed__table th{
+  text-align:left;font-family:var(--display);font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--concrete-400);font-size:13px;padding:8px 12px;border-bottom:1px solid var(--line);
+}
+.filed__table td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+.filed__id,.filed__coord,.filed__ts{font-family:var(--mono);font-size:12px;letter-spacing:.02em}
+.filed__status{font-family:var(--display);font-weight:600;text-transform:uppercase;letter-spacing:.06em;font-size:13px}
+.filed__status--filed{color:var(--survey-blue)}
+.filed__status--in_progress{color:var(--hazard-yellow)}
+.filed__status--resolved{color:var(--waste-green)}
+.filed__row--error td{background:rgba(197,83,58,.09)}
+.filed__error{color:var(--stamp-red);font-size:12px;display:flex;gap:10px;align-items:center;margin-top:6px}
+.filed__error button{
+  font-family:var(--display);font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:.05em;
+  border:1px solid var(--stamp-red);color:var(--stamp-red);background:transparent;border-radius:3px;padding:3px 8px;cursor:pointer;
+}
+.hidden{display:none !important}
+
+/* ---- responsive ---- */
+@media (max-width:900px){
+  .layout,.layout--filed{grid-template-columns:1fr 400px;grid-template-rows:auto 1fr;height:auto}
+  .rail{border-right:0;border-bottom:1px solid var(--line)}
+  .rail__inner{display:none}
+  .rail[open] .rail__inner{display:block}
+  .rail__drawer-toggle{display:block}
+  .map{height:52vh}
+}
+@media (max-width:700px){
+  .layout,.layout--filed{grid-template-columns:1fr;grid-template-rows:auto 1fr;height:auto}
+  .queue{border-left:0;border-top:1px solid var(--line)}
+}
+@media (min-width:901px){
+  .rail__drawer-toggle{display:none}
+}
+@media (max-width:700px){
+  .strip__count{margin-left:0;width:100%}
+}
+.rail__drawer-toggle{
+  width:100%;font-family:var(--display);font-weight:600;text-transform:uppercase;letter-spacing:.08em;
+  background:var(--asphalt-600);color:var(--chalk-100);border:1px solid var(--line);border-radius:3px;
+  padding:8px;cursor:pointer;
+}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none !important;transition:none !important}
+}
+</style>
+</head>
+<body>
+
+<!-- ================= STATUS STRIP ================= -->
+<header class="strip">
+  <div class="strip__brand">
+    <div class="strip__wordmark">TRASH<span>TAG</span></div>
+    <div class="strip__tagline">Tag the trash. Flag the roads.</div>
+  </div>
+  <div class="strip__city">
+    <span class="strip__label">City</span>
+    <select class="select" id="city-select" aria-label="City">
+      <option>Pune</option>
+      <option disabled>Pimpri-Chinchwad (soon)</option>
+    </select>
+  </div>
+  <div class="strip__views" role="group" aria-label="View">
+    <button class="strip__view-btn" id="view-review" aria-pressed="true">Review</button>
+    <button class="strip__view-btn" id="view-filed" aria-pressed="false">Filed log</button>
+  </div>
+  <button class="strip__submit" id="open-submit">Submit report</button>
+  <div class="strip__count" aria-live="polite">
+    <span class="strip__dot"></span>
+    <b id="pending-count">0</b> pending review
+  </div>
+</header>
+
+<!-- ================= REVIEW LAYOUT ================= -->
+<div class="layout" id="review-layout">
+
+  <!-- filter rail -->
+  <aside class="rail" id="rail">
+    <button class="rail__drawer-toggle" id="drawer-toggle" aria-expanded="false">Filters ▾</button>
+    <div class="rail__inner">
+      <fieldset class="rail__group" style="border:0;padding:0;margin:0 0 22px">
+        <legend class="rail__legend">Class</legend>
+        <label class="rail__opt"><input type="checkbox" class="f-class" value="pothole" checked><span class="rail__swatch rail__swatch--pothole"></span>Pothole</label>
+        <label class="rail__opt"><input type="checkbox" class="f-class" value="garbage" checked><span class="rail__swatch rail__swatch--garbage"></span>Garbage</label>
+      </fieldset>
+
+      <fieldset class="rail__group" style="border:0;padding:0;margin:0 0 22px">
+        <legend class="rail__legend">Status</legend>
+        <label class="rail__opt"><input type="radio" name="f-status" value="all" checked>All</label>
+        <label class="rail__opt"><input type="radio" name="f-status" value="new">New</label>
+        <label class="rail__opt"><input type="radio" name="f-status" value="verified">Verified</label>
+        <label class="rail__opt"><input type="radio" name="f-status" value="filed">Filed</label>
+        <label class="rail__opt"><input type="radio" name="f-status" value="in_progress">In progress</label>
+        <label class="rail__opt"><input type="radio" name="f-status" value="resolved">Resolved</label>
+        <label class="rail__opt"><input type="radio" name="f-status" value="rejected">Rejected</label>
+      </fieldset>
+
+      <div class="rail__group">
+        <div class="rail__legend">Ward</div>
+        <select class="select" id="f-ward" style="width:100%" aria-label="Ward">
+          <option value="all">All wards</option>
+        </select>
+      </div>
+
+      <div class="rail__group">
+        <div class="rail__legend">Date range</div>
+        <div class="rail__dates">
+          <label for="f-from">From</label>
+          <input type="date" class="dateinput" id="f-from">
+          <label for="f-to">To</label>
+          <input type="date" class="dateinput" id="f-to">
+        </div>
+      </div>
+
+      <button class="rail__reset" id="f-reset">Reset filters</button>
+    </div>
+  </aside>
+
+  <!-- map (Leaflet + CARTO dark_matter tiles; native zoom controls) -->
+  <section class="map" aria-label="Detection map">
+    <div id="map"></div>
+    <div class="map__legend">
+      <div class="map__legend-row"><i style="color:var(--hazard-yellow)">▲</i> Pothole (P)</div>
+      <div class="map__legend-row"><i style="color:var(--waste-green)">●</i> Garbage (G)</div>
+    </div>
+  </section>
+
+  <!-- docket queue -->
+  <section class="queue" aria-label="Docket queue">
+    <h2 class="queue__head">Docket queue <span id="queue-count"></span></h2>
+    <div id="queue-list"></div>
+  </section>
+</div>
+
+<!-- ================= FILED LOG ================= -->
+<div class="filed hidden" id="filed-view">
+  <h2 class="filed__title">Filed log</h2>
+  <p class="filed__sub">Audit trail of detections submitted to an authority. Status flows submitted → in progress → resolved.</p>
+  <table class="filed__table">
+    <thead>
+      <tr><th>ID</th><th>Class</th><th>Ward</th><th>Coordinates</th><th>Filed</th><th>Days open</th><th>Status</th></tr>
+    </thead>
+    <tbody id="filed-body"></tbody>
+  </table>
+</div>
+
+<!-- ================= SUBMIT REPORT MODAL ================= -->
+<div class="modal hidden" id="submit-modal" role="dialog" aria-modal="true" aria-labelledby="submit-title">
+  <div class="modal__box">
+    <div class="modal__head">
+      <h2 class="modal__title" id="submit-title">Submit report</h2>
+      <button class="modal__close" id="submit-close" aria-label="Close">×</button>
+    </div>
+    <p class="modal__sub">Report a pothole or garbage. A photo and coordinates are required.</p>
+
+    <div class="modal__field">
+      <span class="modal__label">Photo</span>
+      <input type="file" id="sr-file" class="modal__file" accept="image/*" capture="environment">
+      <button class="modal__btn" id="sr-camera-btn" type="button" style="margin-top:8px">Use camera</button>
+      <video class="modal__cam hidden" id="sr-video" playsinline muted></video>
+      <button class="modal__btn hidden" id="sr-capture-btn" type="button" style="margin-top:8px">Capture</button>
+      <canvas id="sr-canvas" class="hidden"></canvas>
+      <img class="modal__preview hidden" id="sr-preview" alt="Photo preview">
+    </div>
+
+    <div class="modal__field">
+      <span class="modal__label">Location</span>
+      <div class="modal__row">
+        <input type="number" step="any" class="dateinput" id="sr-lat" placeholder="Latitude" aria-label="Latitude">
+        <input type="number" step="any" class="dateinput" id="sr-lng" placeholder="Longitude" aria-label="Longitude">
+      </div>
+      <button class="modal__btn" id="sr-locate" type="button" style="margin-top:8px">Use my location</button>
+      <div class="modal__source" id="sr-source"></div>
+    </div>
+
+    <div class="modal__field">
+      <span class="modal__label">Class (optional)</span>
+      <div class="modal__classopts">
+        <label><input type="radio" name="sr-class" value="pothole">Pothole</label>
+        <label><input type="radio" name="sr-class" value="garbage">Garbage</label>
+      </div>
+    </div>
+
+    <button class="modal__btn modal__btn--primary" id="sr-submit" type="button" disabled>Submit report</button>
+    <div class="modal__hint" id="sr-status"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+const MOCK_ISSUES = [
+  {id:"A-0442",class:"pothole",status:"new",confidence:0.91,lat:18.5204,lng:73.8567,ward:"Shivajinagar",severity:"high",timestamp:"2026-08-23T07:42:00",days_open:0,address:"FC Road, near Deccan Gymkhana, Shivajinagar"},
+  {id:"A-0441",class:"garbage",status:"new",confidence:0.87,lat:18.5089,lng:73.8256,ward:"Kothrud",severity:"medium",timestamp:"2026-08-23T07:15:00",days_open:0,address:"Paud Road, opp. Mahatma Society, Kothrud"},
+  {id:"A-0439",class:"pothole",status:"verified",confidence:0.94,lat:18.5314,lng:73.8446,ward:"Shivajinagar",severity:"high",timestamp:"2026-08-22T19:03:00",days_open:1,address:"JM Road, near Sambhaji Park, Deccan"},
+  {id:"A-0437",class:"pothole",status:"filed",confidence:0.88,lat:18.5074,lng:73.8077,ward:"Kothrud",severity:"medium",timestamp:"2026-08-21T14:20:00",days_open:2,address:"Karve Road, near Nal Stop, Kothrud"},
+  {id:"A-0435",class:"garbage",status:"new",confidence:0.79,lat:18.4636,lng:73.8682,ward:"Dhankawadi",severity:"high",timestamp:"2026-08-23T06:48:00",days_open:0,address:"Katraj-Kondhwa Road, near Katraj Lake"},
+  {id:"A-0433",class:"pothole",status:"new",confidence:0.83,lat:18.5679,lng:73.9143,ward:"Nagar Road",severity:"medium",timestamp:"2026-08-23T05:31:00",days_open:0,address:"Viman Nagar Road, near Phoenix Marketcity"},
+  {id:"A-0431",class:"garbage",status:"verified",confidence:0.90,lat:18.5018,lng:73.8636,ward:"Bhavani Peth",severity:"high",timestamp:"2026-08-22T11:09:00",days_open:1,address:"Swargate Chowk, near ST Depot"},
+  {id:"A-0428",class:"pothole",status:"resolved",confidence:0.86,lat:18.5793,lng:73.7389,ward:"Hinjawadi",severity:"medium",timestamp:"2026-08-18T09:00:00",days_open:5,address:"Hinjawadi Phase 1, near Rajiv Gandhi Infotech Park"},
+  {id:"A-0425",class:"garbage",status:"filed",confidence:0.81,lat:18.5645,lng:73.7769,ward:"Aundh",severity:"medium",timestamp:"2026-08-20T16:44:00",days_open:3,address:"Baner Road, near Balewadi Stadium"},
+  {id:"A-0422",class:"pothole",status:"rejected",confidence:0.62,lat:18.5158,lng:73.8785,ward:"Camp",severity:"low",timestamp:"2026-08-22T21:12:00",days_open:1,address:"MG Road, Camp — wet-road glare, not a pothole"},
+  {id:"A-0419",class:"garbage",status:"new",confidence:0.77,lat:18.4967,lng:73.9089,ward:"Hadapsar",severity:"medium",timestamp:"2026-08-23T04:57:00",days_open:0,address:"Hadapsar-Saswad Road, near Magarpatta"},
+  {id:"A-0415",class:"pothole",status:"in_progress",confidence:0.92,lat:18.5510,lng:73.8410,ward:"Shivajinagar",severity:"high",timestamp:"2026-08-19T13:38:00",days_open:4,address:"Model Colony, near Shivaji Housing Society"}
+];
+
+// A live-arriving detection (demonstrates the ambient "live system" cue).
+// Kept separate from MOCK_ISSUES so canonical values are never mutated.
+const LIVE_INCOMING = {id:"A-0443",class:"garbage",status:"new",confidence:0.84,lat:18.5261,lng:73.8542,ward:"Shivajinagar",severity:"medium",timestamp:"2026-08-23T07:58:00",days_open:0,address:"Ghole Road, near Balgandharva Rangmandir, Shivajinagar",_incoming:true};
+
+// Working copy the UI mutates (verify/reject/merge). Canonical const untouched.
+let issues = MOCK_ISSUES.map(i => ({...i}));
+
+// A one-off filing failure for the filed-log error state demo.
+const FILING_ERROR_ID = "A-0425";
+
+const STATUS_LABEL = {new:"NEW", verified:"VERIFIED", filed:"FILED", rejected:"REJECTED", in_progress:"IN PROGRESS", resolved:"RESOLVED"};
+const QUEUE_STATUSES = new Set(["new","verified","rejected"]);
+const FILED_STATUSES = new Set(["filed","in_progress","resolved"]);
+
+// ---- state ----
+const state = {
+  classes: new Set(["pothole","garbage"]),
+  status: "all",
+  ward: "all",
+  from: null,
+  to: null,
+  selected: null,
+  view: "review"
+};
+
+// ---- filtering ----
+function matches(issue){
+  if(!state.classes.has(issue.class)) return false;
+  if(state.status !== "all" && issue.status !== state.status) return false;
+  if(state.ward !== "all" && issue.ward !== state.ward) return false;
+  const d = issue.timestamp.slice(0,10);
+  if(state.from && d < state.from) return false;
+  if(state.to && d > state.to) return false;
+  return true;
+}
+
+// ---- evidence thumbnail (generated, class-aware, deterministic per id) ----
+function hashSeed(id){ let h=0; for(const c of id) h=(h*31+c.charCodeAt(0))>>>0; return h; }
+function thumb(issue){
+  const s = hashSeed(issue.id);
+  const jitter = (n) => ((s >> n) & 7) - 3;
+  if(issue.class === "pothole"){
+    return `<svg class="docket__photo" viewBox="0 0 320 118" preserveAspectRatio="none" role="img" aria-label="Evidence photo: pothole on road surface">
+      <rect width="320" height="118" fill="#2b2f31"/>
+      <rect y="${70+jitter(1)}" width="320" height="48" fill="#232729"/>
+      <line x1="160" y1="0" x2="${150+jitter(2)*3}" y2="118" stroke="#4a5257" stroke-width="6" stroke-dasharray="18 16"/>
+      <ellipse cx="${150+jitter(3)*5}" cy="${72+jitter(4)}" rx="${40+jitter(5)*3}" ry="20" fill="#0e1011"/>
+      <ellipse cx="${150+jitter(3)*5}" cy="${70+jitter(4)}" rx="${34+jitter(5)*3}" ry="15" fill="#050606"/>
+      <rect x="8" y="8" width="60" height="16" fill="rgba(242,183,5,.15)"/>
+    </svg>`;
+  }
+  return `<svg class="docket__photo" viewBox="0 0 320 118" preserveAspectRatio="none" role="img" aria-label="Evidence photo: garbage dump">
+    <rect width="320" height="118" fill="#2b2f31"/>
+    <rect y="86" width="320" height="32" fill="#232729"/>
+    <ellipse cx="${120+jitter(1)*4}" cy="90" rx="70" ry="26" fill="#1c211d"/>
+    <path d="M${70+jitter(2)*3} 92 q30 -46 62 0 z" fill="#3f6b4b"/>
+    <path d="M${120+jitter(3)*3} 92 q26 -38 54 0 z" fill="#4C8C5C"/>
+    <path d="M${170+jitter(4)*3} 94 q22 -30 46 0 z" fill="#38553f"/>
+    <rect x="8" y="8" width="60" height="16" fill="rgba(76,140,92,.18)"/>
+  </svg>`;
+}
+
+// ---- render: docket queue ----
+const queueList = document.getElementById("queue-list");
+const queueCount = document.getElementById("queue-count");
+let staggerBudget = 6;
+
+function docketHTML(issue){
+  const sevClass = issue.severity === "high" ? "docket__sev--high" : "";
+  const coord = `${issue.lat.toFixed(4)}, ${issue.lng.toFixed(4)}`;
+  const ts = issue.timestamp.replace("T"," ");
+  const isDecided = issue.status !== "new";
+  const actions = `
+    <button class="docket__btn docket__btn--verify" data-act="verify" data-id="${issue.id}" ${issue.status==="verified"||issue.status==="rejected"?"disabled":""}>Verify</button>
+    <button class="docket__btn docket__btn--reject" data-act="reject" data-id="${issue.id}" ${issue.status==="rejected"?"disabled":""}>Reject</button>
+    <button class="docket__btn docket__btn--merge" data-act="merge" data-id="${issue.id}">Merge with nearby</button>`;
+  return `
+  <article class="docket docket--${issue.class} ${issue.status==="new"?"docket--new":""} ${state.selected===issue.id?"docket--selected":""} ${issue._incoming?"docket--incoming":""}"
+           data-id="${issue.id}" tabindex="0" aria-label="Detection ${issue.id}, ${issue.class}, status ${STATUS_LABEL[issue.status]}">
+    <div class="docket__stamp docket__stamp--${issue.status}">${STATUS_LABEL[issue.status]}</div>
+    ${thumb(issue)}
+    <div class="docket__body">
+      <div class="docket__classline">
+        <span class="docket__classdot docket__classdot--${issue.class}"></span>
+        <span class="docket__class">${issue.class}</span>
+        <span class="docket__sev ${sevClass}">${issue.severity}</span>
+      </div>
+      <div class="docket__addr">${issue.address}</div>
+      <div class="docket__data">
+        <span>ID <b>#${issue.id}</b></span>
+        <span>CONF <b>${issue.confidence.toFixed(2)}</b></span>
+        <span>GPS <b>${coord}</b></span>
+        <span>OPEN <b>${issue.days_open}d</b></span>
+        <span style="grid-column:1/-1">TS <b>${ts}</b></span>
+      </div>
+      <div class="docket__actions">${actions}</div>
+    </div>
+  </article>`;
+}
+
+function renderQueue(){
+  staggerBudget = 6;
+  const list = issues.filter(i => QUEUE_STATUSES.has(i.status) && matches(i));
+  queueCount.textContent = list.length ? `${list.length} shown` : "";
+  if(!list.length){
+    queueList.innerHTML = `<div class="queue__empty">No pending detections in this ward.</div>`;
+    return;
+  }
+  queueList.innerHTML = list.map(docketHTML).join("");
+  // capped stagger-in
+  const cards = queueList.querySelectorAll(".docket");
+  cards.forEach((c,i) => {
+    if(i < staggerBudget && !c.classList.contains("docket--incoming")){
+      c.classList.add("docket--stagger");
+      c.style.animationDelay = (i*40)+"ms";
+    }
+  });
+}
+
+// ---- render: map (Leaflet + CARTO dark_matter, markercluster) ----
+let map = null, markerCluster = null;
+const markerById = new Map();
+
+function initMap(){
+  map = L.map("map", {zoomControl:true}).setView([18.52, 73.85], 12);
+  // dark basemap keeps the map on-brand; OSM + CARTO attribution, no API key.
+  // Use CARTO's fastly-hosted basemap CDN — basemap.cartocdn.com fails to resolve in some
+  // networks (returns nothing -> Leaflet shows a grey void); the fastly mirror is reliable.
+  L.tileLayer("https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png", {
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains:"abcd", maxZoom:20
+  }).addTo(map);
+  markerCluster = L.markerClusterGroup({showCoverageOnHover:false, maxClusterRadius:50});
+  map.addLayer(markerCluster);
+}
+
+// class icon: triangle+P (pothole) / circle+G (garbage) — shape & letter, never colour alone
+function classIcon(i){
+  const glyph = i.class === "pothole" ? "▲" : "●";
+  const letter = i.class === "pothole" ? "P" : "G";
+  const color = i.class === "pothole" ? "var(--hazard-yellow)" : "var(--waste-green)";
+  const sel = state.selected === i.id ? " tt-marker--selected" : "";
+  return L.divIcon({
+    className:"tt-marker"+sel,
+    html:`<span class="tt-marker__glyph" style="color:${color}">${glyph}</span><span class="tt-marker__letter">${letter}</span>`,
+    iconSize:[26,20], iconAnchor:[13,10], popupAnchor:[0,-10]
+  });
+}
+
+function popupHTML(i){
+  return `<div class="tt-popup">
+    <div class="tt-popup__id">#${i.id}</div>
+    <div class="tt-popup__row">${i.class} · ${STATUS_LABEL[i.status]}</div>
+    <div class="tt-popup__row">conf ${i.confidence.toFixed(2)}</div>
+    <div class="tt-popup__addr">${i.address}</div></div>`;
+}
+
+function renderMap(){
+  if(!map) return;
+  markerCluster.clearLayers();
+  markerById.clear();
+  const list = issues.filter(matches);
+  list.forEach(i => {
+    const m = L.marker([i.lat, i.lng], {
+      icon:classIcon(i),
+      keyboard:true,
+      title:`Detection ${i.id}, ${i.class}, ${STATUS_LABEL[i.status]}, ward ${i.ward}`
+    });
+    m.bindPopup(popupHTML(i));
+    m.on("click", () => selectIssue(i.id, {scroll:true}));
+    markerCluster.addLayer(m);
+    markerById.set(i.id, m);
+  });
+  if(list.length){
+    const b = L.latLngBounds(list.map(i => [i.lat, i.lng]));
+    if(!map._ttFitted){ map.fitBounds(b, {padding:[40,40], maxZoom:14}); map._ttFitted = true; }
+  }
+}
+
+// ---- render: filed log ----
+function renderFiled(){
+  const body = document.getElementById("filed-body");
+  const list = issues.filter(i => FILED_STATUSES.has(i.status) && matches(i));
+  if(!list.length){ body.innerHTML = `<tr><td colspan="7" style="color:var(--concrete-400)">No filed detections match the current filters.</td></tr>`; return; }
+  body.innerHTML = list.map(i => {
+    const err = i.id === FILING_ERROR_ID;
+    const errRow = err ? `<tr class="filed__row--error"><td colspan="7">
+      <div class="filed__error">Detection #${i.id} could not be filed — authority endpoint unreachable. Retry or export manually.
+      <button data-retry="${i.id}">Retry</button></div></td></tr>` : "";
+    return `<tr>
+      <td class="filed__id">#${i.id}</td>
+      <td>${i.class}</td>
+      <td>${i.ward}</td>
+      <td class="filed__coord">${i.lat.toFixed(4)}, ${i.lng.toFixed(4)}</td>
+      <td class="filed__ts">${i.timestamp.slice(0,10)}</td>
+      <td>${i.days_open}d</td>
+      <td class="filed__status filed__status--${i.status}">${STATUS_LABEL[i.status]}</td>
+    </tr>${errRow}`;
+  }).join("");
+}
+
+// ---- pending count ----
+function updatePending(){
+  const n = issues.filter(i => i.status === "new").length;
+  document.getElementById("pending-count").textContent = n;
+}
+
+// ---- selection / cross-highlight ----
+function selectIssue(id, {scroll=true, openPopup=false} = {}){
+  const prev = state.selected;
+  state.selected = id;
+  renderQueue();
+  // restyle just the two affected markers (rebuilding all mid-click would destroy the clicked one)
+  if(map){
+    [prev, id].forEach(pid => {
+      const it = issues.find(x => x.id === pid), mk = markerById.get(pid);
+      if(it && mk) mk.setIcon(classIcon(it));
+    });
+  }
+  if(scroll){
+    const card = queueList.querySelector(`.docket[data-id="${id}"]`);
+    if(card) card.scrollIntoView({behavior:"smooth", block:"center"});
+  }
+  if(openPopup && map){
+    const m = markerById.get(id);
+    if(m) markerCluster.zoomToShowLayer(m, () => m.openPopup());
+  }
+}
+
+// ---- actions ----
+function applyAction(id, act){
+  const issue = issues.find(i => i.id === id);
+  if(!issue) return;
+  if(act === "verify") issue.status = "verified";
+  else if(act === "reject") issue.status = "rejected";
+  else if(act === "merge"){ issues = issues.filter(i => i.id !== id); } // merged into nearby duplicate
+  delete issue._incoming;
+  updatePending(); renderAll();
+}
+
+function renderAll(){ renderQueue(); renderMap(); renderFiled(); }
+
+// ================= EVENTS =================
+// filter: class
+document.querySelectorAll(".f-class").forEach(cb => cb.addEventListener("change", () => {
+  state.classes = new Set([...document.querySelectorAll(".f-class:checked")].map(c=>c.value));
+  renderAll();
+}));
+// filter: status
+document.querySelectorAll('input[name="f-status"]').forEach(r => r.addEventListener("change", e => {
+  state.status = e.target.value; renderAll();
+}));
+// filter: ward
+const wardSel = document.getElementById("f-ward");
+[...new Set(MOCK_ISSUES.map(i=>i.ward))].sort().forEach(w => {
+  const o = document.createElement("option"); o.value=w; o.textContent=w; wardSel.appendChild(o);
+});
+wardSel.addEventListener("change", e => { state.ward = e.target.value; renderAll(); });
+// filter: dates
+document.getElementById("f-from").addEventListener("change", e => { state.from = e.target.value || null; renderAll(); });
+document.getElementById("f-to").addEventListener("change", e => { state.to = e.target.value || null; renderAll(); });
+// reset
+document.getElementById("f-reset").addEventListener("click", () => {
+  state.classes = new Set(["pothole","garbage"]); state.status="all"; state.ward="all"; state.from=null; state.to=null;
+  document.querySelectorAll(".f-class").forEach(c=>c.checked=true);
+  document.querySelector('input[name="f-status"][value="all"]').checked = true;
+  wardSel.value="all"; document.getElementById("f-from").value=""; document.getElementById("f-to").value="";
+  renderAll();
+});
+
+// queue: card select (cross-highlights + opens the map marker popup) + actions
+queueList.addEventListener("click", e => {
+  const btn = e.target.closest(".docket__btn");
+  if(btn){ e.stopPropagation(); applyAction(btn.dataset.id, btn.dataset.act); return; }
+  const card = e.target.closest(".docket");
+  if(card) selectIssue(card.dataset.id, {scroll:false, openPopup:true});
+});
+queueList.addEventListener("keydown", e => {
+  if((e.key==="Enter"||e.key===" ") && e.target.classList.contains("docket")){
+    e.preventDefault(); selectIssue(e.target.dataset.id, {scroll:false, openPopup:true});
+  }
+});
+
+// filed-log retry (demo: just clears the error styling by refiling)
+document.getElementById("filed-body").addEventListener("click", e => {
+  const b = e.target.closest("[data-retry]");
+  if(b) b.textContent = "Retrying…";
+});
+
+// view toggle
+const reviewLayout = document.getElementById("review-layout");
+const filedView = document.getElementById("filed-view");
+const btnReview = document.getElementById("view-review");
+const btnFiled = document.getElementById("view-filed");
+function setView(v){
+  state.view = v;
+  const filed = v==="filed";
+  reviewLayout.classList.toggle("hidden", filed);
+  filedView.classList.toggle("hidden", !filed);
+  btnReview.setAttribute("aria-pressed", String(!filed));
+  btnFiled.setAttribute("aria-pressed", String(filed));
+}
+btnReview.addEventListener("click", () => setView("review"));
+btnFiled.addEventListener("click", () => setView("filed"));
+
+// mobile filter drawer
+const rail = document.getElementById("rail");
+document.getElementById("drawer-toggle").addEventListener("click", e => {
+  const open = rail.hasAttribute("open");
+  if(open) rail.removeAttribute("open"); else rail.setAttribute("open","");
+  e.target.setAttribute("aria-expanded", String(!open));
+});
+
+// ================= SUBMIT REPORT MODAL =================
+// Citizen report flow. On success the report enters the pipeline DB (§2.1); the dashboard's
+// own queue keeps showing MOCK_ISSUES until /v1/issues is wired to the pipeline (separate step),
+// so a freshly submitted report will NOT appear in the queue yet — that's expected.
+(function(){
+  const modal = document.getElementById("submit-modal");
+  const openBtn = document.getElementById("open-submit");
+  const closeBtn = document.getElementById("submit-close");
+  const fileInput = document.getElementById("sr-file");
+  const camBtn = document.getElementById("sr-camera-btn");
+  const captureBtn = document.getElementById("sr-capture-btn");
+  const video = document.getElementById("sr-video");
+  const canvas = document.getElementById("sr-canvas");
+  const preview = document.getElementById("sr-preview");
+  const latEl = document.getElementById("sr-lat");
+  const lngEl = document.getElementById("sr-lng");
+  const locateBtn = document.getElementById("sr-locate");
+  const sourceEl = document.getElementById("sr-source");
+  const submitBtn = document.getElementById("sr-submit");
+  const statusEl = document.getElementById("sr-status");
+
+  let photo = null;      // File or Blob (required)
+  let stream = null;     // live camera MediaStream
+  let capturedAt = null; // ISO string from EXIF, else set at submit
+  let lastFocus = null;
+
+  // hide live-camera option where getUserMedia is unavailable (e.g. non-secure / unsupported)
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) camBtn.classList.add("hidden");
+
+  function setStatus(msg, kind){
+    statusEl.textContent = msg || "";
+    statusEl.className = "modal__hint" + (kind ? " modal__hint--"+kind : "");
+  }
+  function setSource(text){ sourceEl.textContent = text ? "Location source: "+text : ""; }
+
+  function validCoords(){
+    const la = parseFloat(latEl.value), ln = parseFloat(lngEl.value);
+    return Number.isFinite(la) && Number.isFinite(ln) && la>=-90 && la<=90 && ln>=-180 && ln<=180;
+  }
+  function refreshSubmit(){ submitBtn.disabled = !(photo && validCoords()); }
+  latEl.addEventListener("input", refreshSubmit);
+  lngEl.addEventListener("input", refreshSubmit);
+
+  function showPreview(blob){
+    preview.src = URL.createObjectURL(blob);
+    preview.classList.remove("hidden");
+  }
+
+  function stopCamera(){
+    if(stream){ stream.getTracks().forEach(t => t.stop()); stream = null; }
+    video.classList.add("hidden");
+    captureBtn.classList.add("hidden");
+    camBtn.textContent = "Use camera";
+  }
+
+  // ---- photo from file input (+ EXIF GPS/date via exifr) ----
+  fileInput.addEventListener("change", async () => {
+    const f = fileInput.files && fileInput.files[0];
+    if(!f) return;
+    stopCamera();
+    photo = f;
+    showPreview(f);
+    capturedAt = null;
+    setSource("");
+    let gpsFound = false;
+    if(window.exifr){
+      try{
+        const gps = await exifr.gps(f);
+        if(gps && Number.isFinite(gps.latitude) && Number.isFinite(gps.longitude)){
+          latEl.value = gps.latitude.toFixed(6);
+          lngEl.value = gps.longitude.toFixed(6);
+          setSource("from photo");
+          gpsFound = true;
+        }
+        const meta = await exifr.parse(f).catch(() => null);
+        if(meta && meta.DateTimeOriginal) capturedAt = new Date(meta.DateTimeOriginal).toISOString();
+      }catch(_){ /* no EXIF — fall through to device/manual */ }
+    }
+    if(!gpsFound) setSource("device or manual");
+    refreshSubmit();
+  });
+
+  // ---- live camera capture ----
+  camBtn.addEventListener("click", async () => {
+    if(stream){ stopCamera(); return; }
+    try{
+      stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:"environment"}});
+      video.srcObject = stream;
+      await video.play();
+      video.classList.remove("hidden");
+      captureBtn.classList.remove("hidden");
+      camBtn.textContent = "Stop camera";
+    }catch(_){
+      setStatus("Camera unavailable or permission denied. Choose a file or type coordinates.", "error");
+      stopCamera();
+    }
+  });
+  captureBtn.addEventListener("click", () => {
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.toBlob(blob => {
+      if(!blob) return;
+      photo = blob;
+      capturedAt = null;
+      showPreview(blob);
+      setSource(sourceEl.textContent ? sourceEl.textContent.replace("Location source: ","") : "device or manual");
+      refreshSubmit();
+    }, "image/jpeg", 0.9);
+    stopCamera();
+  });
+
+  // ---- device geolocation ----
+  locateBtn.addEventListener("click", () => {
+    if(!navigator.geolocation){ setStatus("Geolocation not supported. Type coordinates manually.", "error"); return; }
+    locateBtn.textContent = "Locating…";
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        latEl.value = pos.coords.latitude.toFixed(6);
+        lngEl.value = pos.coords.longitude.toFixed(6);
+        setSource("device location");
+        locateBtn.textContent = "Use my location";
+        setStatus("");
+        refreshSubmit();
+      },
+      err => {
+        locateBtn.textContent = "Use my location";
+        setStatus("Could not get your location ("+err.message+"). Type coordinates manually.", "error");
+      },
+      {enableHighAccuracy:true, timeout:10000}
+    );
+  });
+
+  // ---- submit ----
+  submitBtn.addEventListener("click", async () => {
+    if(!(photo && validCoords())) return;
+    const cls = (document.querySelector('input[name="sr-class"]:checked') || {}).value || null;
+    const fd = new FormData();
+    fd.append("media", photo, photo.name || "capture.jpg");
+    fd.append("lat", latEl.value);
+    fd.append("lng", lngEl.value);
+    fd.append("captured_at", capturedAt || new Date().toISOString());
+    fd.append("source", "capture-app");
+    fd.append("device_meta", JSON.stringify({
+      class: cls,
+      userAgent: navigator.userAgent,
+      location_source: sourceEl.textContent.replace("Location source: ","") || "unknown"
+    }));
+
+    submitBtn.disabled = true;
+    setStatus("Submitting…");
+    try{
+      const res = await fetch("/v1/reports", {method:"POST", body:fd});
+      const data = await res.json().catch(() => ({}));
+      if(res.ok){
+        const dup = data.status === "duplicate";
+        setStatus(
+          dup
+            ? `Already on file. Matched report ${data.report_id} — no new ticket created.`
+            : `Report ${data.report_id} received and queued for review.`,
+          "ok"
+        );
+      }else{
+        const detail = (data && (data.detail || data.message)) || res.status+" "+res.statusText;
+        setStatus("Report rejected: "+ (typeof detail==="string"?detail:JSON.stringify(detail)) +". Fix the input and resubmit.", "error");
+        submitBtn.disabled = false;
+      }
+    }catch(e){
+      setStatus("Could not reach the server ("+e.message+"). Check your connection and resubmit.", "error");
+      submitBtn.disabled = false;
+    }
+  });
+
+  // ---- open/close + focus trap ----
+  function focusables(){
+    return [...modal.querySelectorAll('button,input,video,[tabindex]:not([tabindex="-1"])')]
+      .filter(el => !el.classList.contains("hidden") && !el.disabled && el.offsetParent !== null);
+  }
+  function open(){
+    lastFocus = document.activeElement;
+    modal.classList.remove("hidden");
+    (fileInput || closeBtn).focus();
+  }
+  function close(){
+    stopCamera();
+    modal.classList.add("hidden");
+    if(lastFocus) lastFocus.focus();
+  }
+  openBtn.addEventListener("click", open);
+  closeBtn.addEventListener("click", close);
+  modal.addEventListener("mousedown", e => { if(e.target === modal) close(); });
+  modal.addEventListener("keydown", e => {
+    if(e.key === "Escape"){ close(); return; }
+    if(e.key === "Tab"){
+      const f = focusables();
+      if(!f.length) return;
+      const first = f[0], last = f[f.length-1];
+      if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+      else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+    }
+  });
+})();
+
+// ================= INIT =================
+initMap();
+updatePending();
+renderAll();
+
+// ambient "live" cue — one new detection slides into the queue a few seconds after load.
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+setTimeout(() => {
+  if(issues.some(i => i.id === LIVE_INCOMING.id)) return;
+  const incoming = {...LIVE_INCOMING};
+  if(reduceMotion) delete incoming._incoming; // no slide/flash under reduced motion
+  issues.unshift(incoming);
+  updatePending();
+  if(state.view === "review"){ renderQueue(); renderMap(); }
+  // clear the incoming flag so it doesn't re-animate on later renders
+  setTimeout(() => { const it = issues.find(i=>i.id===LIVE_INCOMING.id); if(it) delete it._incoming; }, 1300);
+}, 4000);
+</script>
+</body>
+</html>
