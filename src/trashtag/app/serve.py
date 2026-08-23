@@ -30,10 +30,16 @@ DASHBOARD_HTML = STATIC_DIR / "dashboard.html"
 
 
 def _conn():
-    conn = db.get_conn(os.getenv("TRASHTAG_DB")) if os.getenv("TRASHTAG_DB") else db.get_conn()
+    conn = (
+        db.get_conn(os.getenv("TRASHTAG_DB"))
+        if os.getenv("TRASHTAG_DB")
+        else db.get_conn()
+    )
     db.init_db(conn)
     if not conn.execute("SELECT 1 FROM issues LIMIT 1").fetchone():
-        db.seed_issues(conn, mock_issue_rows())   # demo/seed data so the dashboard isn't empty
+        db.seed_issues(
+            conn, mock_issue_rows()
+        )  # demo/seed data so the dashboard isn't empty
     return conn
 
 
@@ -55,16 +61,27 @@ def health():
 
 
 @app.get("/v1/issues", operation_id="list_issues")
-def read_issues(issue_class: str | None = Query(default=None, alias="class"),
-                status: str | None = Query(default=None)):
+def read_issues(
+    issue_class: str | None = Query(default=None, alias="class"),
+    status: str | None = Query(default=None),
+):
     if issue_class and issue_class not in ISSUE_CLASSES:
-        raise HTTPException(422, f"Unknown class '{issue_class}'. Expected one of {list(ISSUE_CLASSES)}.")
+        raise HTTPException(
+            422,
+            f"Unknown class '{issue_class}'. Expected one of {list(ISSUE_CLASSES)}.",
+        )
     if status and status not in ISSUE_STATUSES:
-        raise HTTPException(422, f"Unknown status '{status}'. Expected one of {list(ISSUE_STATUSES)}.")
+        raise HTTPException(
+            422, f"Unknown status '{status}'. Expected one of {list(ISSUE_STATUSES)}."
+        )
     with closing(_conn()) as conn:
         from trashtag.pipeline.models import IssueClass, IssueStatus
-        issues = db.list_issues(conn, IssueClass(issue_class) if issue_class else None,
-                                IssueStatus(status) if status else None)
+
+        issues = db.list_issues(
+            conn,
+            IssueClass(issue_class) if issue_class else None,
+            IssueStatus(status) if status else None,
+        )
     return {"count": len(issues), "issues": issues}
 
 

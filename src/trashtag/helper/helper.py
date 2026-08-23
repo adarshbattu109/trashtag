@@ -206,9 +206,18 @@ def get_issue(issue_id: str) -> dict | None:
 def mock_issue_rows():
     """MOCK_ISSUES mapped to the pipeline issues-table shape (for seeding the DB)."""
     return [
-        {"id": i["id"], "class": i["class"], "status": i["status"], "lat": i["lat"],
-         "lng": i["lng"], "confidence": i["confidence"], "severity": i["severity"],
-         "first_seen": i["timestamp"], "last_seen": i["timestamp"], "evidence_count": 1}
+        {
+            "id": i["id"],
+            "class": i["class"],
+            "status": i["status"],
+            "lat": i["lat"],
+            "lng": i["lng"],
+            "confidence": i["confidence"],
+            "severity": i["severity"],
+            "first_seen": i["timestamp"],
+            "last_seen": i["timestamp"],
+            "evidence_count": 1,
+        }
         for i in MOCK_ISSUES
     ]
 

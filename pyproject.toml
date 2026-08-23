@@ -39,4 +39,5 @@ testpaths = ["tests"]
 dev = [
     "httpx>=0.27",
     "pytest>=9.1.1",
+    "ruff>=0.16",
 ]

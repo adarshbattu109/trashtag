@@ -104,7 +104,11 @@ class Issue:
 TRANSITIONS: dict[IssueStatus, set[IssueStatus]] = {
     IssueStatus.NEW: {IssueStatus.VERIFIED, IssueStatus.REJECTED},
     IssueStatus.VERIFIED: {IssueStatus.FILED, IssueStatus.REJECTED},
-    IssueStatus.FILED: {IssueStatus.IN_PROGRESS, IssueStatus.RESOLVED, IssueStatus.REJECTED},
+    IssueStatus.FILED: {
+        IssueStatus.IN_PROGRESS,
+        IssueStatus.RESOLVED,
+        IssueStatus.REJECTED,
+    },
     IssueStatus.IN_PROGRESS: {IssueStatus.RESOLVED, IssueStatus.REJECTED},
     IssueStatus.RESOLVED: set(),
     IssueStatus.REJECTED: set(),

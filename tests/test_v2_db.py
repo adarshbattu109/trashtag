@@ -28,11 +28,27 @@ def test_can_transition():
 
 
 def _seed_one_issue(conn):
-    det = RawDetection(id=new_id("det"), report_id="rpt_x", cls=IssueClass.POTHOLE,
-                       confidence=0.9, lat=18.52, lng=73.85, captured_at=now_iso(),
-                       severity=Severity.MEDIUM)
+    det = RawDetection(
+        id=new_id("det"),
+        report_id="rpt_x",
+        cls=IssueClass.POTHOLE,
+        confidence=0.9,
+        lat=18.52,
+        lng=73.85,
+        captured_at=now_iso(),
+        severity=Severity.MEDIUM,
+    )
     # a report row is needed for the FK on raw_detections/evidence
-    db.insert_report(conn, Report(id="rpt_x", media_path="rpt_x_p.jpg", lat=18.52, lng=73.85, captured_at=now_iso()))
+    db.insert_report(
+        conn,
+        Report(
+            id="rpt_x",
+            media_path="rpt_x_p.jpg",
+            lat=18.52,
+            lng=73.85,
+            captured_at=now_iso(),
+        ),
+    )
     db.insert_raw_detection(conn, det)
     return db.create_issue_from(conn, det), det
 
@@ -59,9 +75,20 @@ def test_issue_evidence_media(conn):
 
 
 def test_seed_issues_idempotent(conn):
-    rows = [{"id": "iss_seed1", "class": "pothole", "status": "new", "lat": 18.5, "lng": 73.8,
-             "confidence": 0.8, "severity": "medium", "first_seen": now_iso(), "last_seen": now_iso(),
-             "evidence_count": 1}]
+    rows = [
+        {
+            "id": "iss_seed1",
+            "class": "pothole",
+            "status": "new",
+            "lat": 18.5,
+            "lng": 73.8,
+            "confidence": 0.8,
+            "severity": "medium",
+            "first_seen": now_iso(),
+            "last_seen": now_iso(),
+            "evidence_count": 1,
+        }
+    ]
     assert db.seed_issues(conn, rows) == 1
     assert db.seed_issues(conn, rows) == 0  # idempotent
     assert len(db.list_issues(conn)) == 1

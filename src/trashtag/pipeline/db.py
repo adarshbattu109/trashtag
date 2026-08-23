@@ -375,14 +375,19 @@ def update_issue(conn, issue_id, *, status=None, severity=None, note=None):
     if current is None:
         raise KeyError(issue_id)
     if status is not None:
-        frm, to = IssueStatus(current["status"]), IssueStatus(status)  # ValueError on bad value
+        frm, to = (
+            IssueStatus(current["status"]),
+            IssueStatus(status),
+        )  # ValueError on bad value
         if frm != to and not can_transition(frm, to):
             raise ValueError(f"Illegal transition {frm} -> {to}")
         conn.execute("UPDATE issues SET status = ? WHERE id = ?", (str(to), issue_id))
         _event(conn, issue_id, f"status:{to}")
     if severity is not None:
         sev = Severity(severity)  # ValueError on bad value
-        conn.execute("UPDATE issues SET severity = ? WHERE id = ?", (str(sev), issue_id))
+        conn.execute(
+            "UPDATE issues SET severity = ? WHERE id = ?", (str(sev), issue_id)
+        )
         _event(conn, issue_id, f"severity:{sev}")
     if note is not None:
         conn.execute("UPDATE issues SET note = ? WHERE id = ?", (note, issue_id))
@@ -414,7 +419,9 @@ def seed_issues(conn, issues):
     """Insert issue rows if absent (idempotent by id). Returns count inserted."""
     inserted = 0
     for i in issues:
-        exists = conn.execute("SELECT 1 FROM issues WHERE id = ?", (i["id"],)).fetchone()
+        exists = conn.execute(
+            "SELECT 1 FROM issues WHERE id = ?", (i["id"],)
+        ).fetchone()
         if exists:
             continue
         conn.execute(
