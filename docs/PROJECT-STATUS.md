@@ -10,20 +10,21 @@ _Last updated: 2026-08-23._
 
 ## TL;DR
 
-- **`main`** (`1045645`) — V1: the ops dashboard over mock data, ingestion → processing →
-  10m geo-dedup pipeline, MCP server, citizen capture. Runnable, tested.
-- **`v2`** (`60690d0`, pushed to origin) — **V2.0 "visible loop" is COMPLETE, reviewed, and
-  verified end-to-end.** This is the active branch. `git checkout v2` to continue.
-- **Not yet done:** V2.0 is not merged to `main` (no PR opened yet). V2.1, V2.2, and the
-  rest of the V2 backlog are specced but unbuilt.
+- **`main`** — **V2.0 "visible loop" is MERGED and released as `0.2.0`** (tag `v0.2.0`, PR #3).
+  The dashboard is a live loop over the pipeline DB + background worker, with real photos and
+  `PATCH` lifecycle. Runnable, 67 tests green.
+- **`v2.3`** — the active branch for the remaining V2 backlog. `git checkout v2.3` to continue.
+  (The old `v2` branch is merged and can be deleted.)
+- **Specced but unbuilt:** V2.1 (+ the folded-in mcp migration), V2.2, and the rest of the V2 spec.
 
-**To resume:** `git checkout v2`, then read this file → the [V2 spec](v2-design-spec.md) →
+**To resume:** `git checkout v2.3`, then read this file → the [V2 spec](v2-design-spec.md) →
 the design doc for whichever feature you're building next
-([V2.1](v2.1-citizen-view-design.md) / [V2.2](v2.2-trip-mode-design.md)).
+([V2.1](v2.1-citizen-view-design.md) / [V2.2](v2.2-trip-mode-design.md)). Follow
+[`CLAUDE.md`](../CLAUDE.md) for the workflow + quality gates.
 
 ---
 
-## Done — V2.0 visible loop (branch `v2`)
+## Done — V2.0 visible loop (merged to `main`, released `0.2.0`)
 
 The dashboard is no longer a static mock; it's a live loop. Submit a photo → an in-process
 background worker detects + clusters it → it appears on the dashboard with its **real photo**
@@ -50,13 +51,13 @@ issue → dashboard render → PATCH). Implementation plan:
 
 ## Next up (in suggested order)
 
-1. **Open a PR** `v2` → `main` (V2.0). Not done yet — decide before stacking more on `v2`.
-2. **V2.1 — Citizen-facing view** → [`docs/v2.1-citizen-view-design.md`](v2.1-citizen-view-design.md).
+1. **V2.1 — Citizen-facing view** → [`docs/v2.1-citizen-view-design.md`](v2.1-citizen-view-design.md).
    Single portal for everyone; admin-only review controls. Gated by the privacy blur gate and
-   (for "my reports") auth/RBAC.
-3. **V2.2 — Trip / dashcam mode** → [`docs/v2.2-trip-mode-design.md`](v2.2-trip-mode-design.md).
+   (for "my reports") auth/RBAC. **Now also bundles the `fastapi-mcp` → `fastmcp` migration**
+   (lifting the `mcp<2` pin) — do that task first; it's independent and clears Dependabot noise.
+2. **V2.2 — Trip / dashcam mode** → [`docs/v2.2-trip-mode-design.md`](v2.2-trip-mode-design.md).
    Record a trip; auto-tag potholes/garbage along the GPS track.
-4. **Rest of the V2 backlog** → [`docs/v2-design-spec.md`](v2-design-spec.md): foreground-validation
+3. **Rest of the V2 backlog** → [`docs/v2-design-spec.md`](v2-design-spec.md): foreground-validation
    gate (§5), auto-review/scaling (§5b), admin model-selection UI (§5c), auth/RBAC (§5d),
    filing pipeline (§5e — CPGRAMS + Swachhata, realistically the heaviest track).
 
