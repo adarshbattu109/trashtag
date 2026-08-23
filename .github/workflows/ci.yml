@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: uv tool run ruff check .
+      - run: uv tool run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: uv sync
+      # No test reaches the network — the app serves hardcoded mock data.
+      # pythonpath is configured in pyproject.toml [tool.pytest.ini_options]
+      - run: uv run pytest -q
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      # Audit the locked dependency set. pip-audit runs in its own isolated tool
+      # environment, so it has to be pointed at an exported requirements file.
+      - run: uv export --frozen --no-emit-project --format requirements.txt -o requirements.txt
+      - run: uv tool run pip-audit -r requirements.txt
