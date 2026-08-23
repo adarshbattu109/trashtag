@@ -2,6 +2,7 @@
 HTTP and MCP (so an LLM agent can query the same detections a reviewer sees)."""
 
 import asyncio
+import contextlib
 import logging
 import os
 from contextlib import asynccontextmanager, closing
@@ -71,6 +72,8 @@ async def lifespan(app):
     yield
     if task:
         task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 app = FastAPI(title=APP_NAME, description=TAGLINE, version=VERSION, lifespan=lifespan)
@@ -138,7 +141,7 @@ def _thumbnail(data: bytes, max_edge: int) -> bytes:
         buf = BytesIO()
         im.save(buf, "JPEG", quality=80)
         return buf.getvalue()
-    except UnidentifiedImageError, OSError, ValueError:
+    except UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError:
         return data
 
 

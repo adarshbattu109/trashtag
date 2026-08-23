@@ -93,3 +93,24 @@ def test_bad_device_meta_json(client):
         files={"media": ("x.jpg", b"x", "image/jpeg")},
     )
     assert resp.status_code == 422
+
+
+def test_invalid_captured_at(client):
+    """Invalid captured_at timestamp → 422."""
+    resp = client.post(
+        "/v1/reports",
+        data={"lat": 18.52, "lng": 73.85, "captured_at": "not-a-date"},
+        files={"media": ("x.jpg", b"x", "image/jpeg")},
+    )
+    assert resp.status_code == 422
+
+
+def test_valid_captured_at(client):
+    """Valid ISO-8601 captured_at → 202."""
+    resp = client.post(
+        "/v1/reports",
+        data={"lat": 18.52, "lng": 73.85, "captured_at": "2026-08-23T10:00:00"},
+        files={"media": ("x.jpg", b"y", "image/jpeg")},
+    )
+    assert resp.status_code == 202
+    assert resp.json()["status"] == "queued"

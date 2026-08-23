@@ -1,10 +1,8 @@
-"""Helper functions and the canonical mock detection data for TrashTag.
+"""Helper functions and mock detection data for TrashTag.
 
-ponytail: this mock list is the single source of truth for the HTTP API and the MCP
-tools. The dashboard (app/static/dashboard.html) carries its own equivalent JS array
-because the design spec requires a self-contained single file with no API dependency —
-same issues, two representations, intentional rather than drift. When the data stops
-being mock, delete the JS array and point the dashboard at /v1/issues.
+ponytail: MOCK_ISSUES is seed data loaded once into the pipeline DB via mock_issue_rows().
+The HTTP API and MCP tools read from the live DB, not this array. The dashboard fetches
+/v1/issues live. When seeding is no longer needed, delete MOCK_ISSUES and mock_issue_rows().
 """
 
 import logging
@@ -13,8 +11,7 @@ logger = logging.getLogger(__name__)
 
 
 # Pune-area detections: mixed class, confidence, status, ward. Coordinates are real Pune
-# neighbourhoods so the map reads as a populated city rather than lorem-ipsum. Keep this in
-# sync with the MOCK_ISSUES array in dashboard.html (see module docstring).
+# neighbourhoods so the map reads as a populated city. This is seed data only.
 MOCK_ISSUES = [
     {
         "id": "A-0442",
@@ -175,34 +172,6 @@ MOCK_ISSUES = [
 ]
 
 
-def list_issues(
-    issue_class: str | None = None, status: str | None = None
-) -> list[dict]:
-    """Return mock issues, optionally filtered by class and/or status.
-
-    Args:
-        issue_class: Restrict to one detection class ("pothole"/"garbage"), or None for all.
-        status: Restrict to one lifecycle status, or None for all.
-
-    Returns:
-        The matching issue dicts, in their canonical order.
-    """
-    issues = MOCK_ISSUES
-    if issue_class:
-        issues = [i for i in issues if i["class"] == issue_class]
-    if status:
-        issues = [i for i in issues if i["status"] == status]
-    logger.info(
-        "Listing %d issues (class=%s, status=%s)", len(issues), issue_class, status
-    )
-    return issues
-
-
-def get_issue(issue_id: str) -> dict | None:
-    """Return a single issue by its detection ID, or None if there is no such issue."""
-    return next((i for i in MOCK_ISSUES if i["id"] == issue_id), None)
-
-
 def mock_issue_rows():
     """MOCK_ISSUES mapped to the pipeline issues-table shape (for seeding the DB)."""
     return [
@@ -223,12 +192,22 @@ def mock_issue_rows():
 
 
 if __name__ == "__main__":
-    # Self-check: filters compose, and get_issue round-trips a known ID.
-    assert len(list_issues()) == len(MOCK_ISSUES)
-    assert all(i["class"] == "pothole" for i in list_issues(issue_class="pothole"))
-    assert list_issues(issue_class="garbage", status="filed") == [
-        i for i in MOCK_ISSUES if i["class"] == "garbage" and i["status"] == "filed"
-    ]
-    assert get_issue("A-0442")["ward"] == "Shivajinagar"
-    assert get_issue("NOPE") is None
-    print(f"ok — {len(MOCK_ISSUES)} mock issues, filters and lookup consistent")
+    # Self-check: mock_issue_rows() produces the expected number of rows with required keys.
+    rows = mock_issue_rows()
+    assert len(rows) == len(MOCK_ISSUES)
+    required_keys = {
+        "id",
+        "class",
+        "status",
+        "lat",
+        "lng",
+        "confidence",
+        "severity",
+        "first_seen",
+        "last_seen",
+        "evidence_count",
+    }
+    assert all(required_keys <= row.keys() for row in rows)
+    print(
+        f"ok — {len(MOCK_ISSUES)} mock issues, mock_issue_rows() produces valid schema"
+    )

@@ -417,23 +417,17 @@ def issue_evidence_media(conn, issue_id):
 
 def seed_issues(conn, issues):
     """Insert issue rows if absent (idempotent by id). Returns count inserted."""
-    inserted = 0
+    before = conn.total_changes
     for i in issues:
-        exists = conn.execute(
-            "SELECT 1 FROM issues WHERE id = ?", (i["id"],)
-        ).fetchone()
-        if exists:
-            continue
         conn.execute(
-            """INSERT INTO issues (id, class, status, lat, lng, confidence, severity,
+            """INSERT OR IGNORE INTO issues (id, class, status, lat, lng, confidence, severity,
                first_seen, last_seen, evidence_count, note)
                VALUES (:id,:class,:status,:lat,:lng,:confidence,:severity,
                :first_seen,:last_seen,:evidence_count,:note)""",
             {**i, "note": i.get("note")},
         )
-        inserted += 1
     conn.commit()
-    return inserted
+    return conn.total_changes - before
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 import contextlib
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Form, HTTPException, Response, UploadFile, status
@@ -60,6 +61,11 @@ def submit_report(
         raise HTTPException(422, "lat must be in [-90, 90]")
     if not (-180 <= lng <= 180):
         raise HTTPException(422, "lng must be in [-180, 180]")
+    if captured_at:
+        try:
+            datetime.fromisoformat(captured_at)
+        except ValueError:
+            raise HTTPException(422, "captured_at must be an ISO-8601 timestamp")
 
     media_bytes = media.file.read()
     if not media_bytes:
