@@ -203,6 +203,16 @@ def get_issue(issue_id: str) -> dict | None:
     return next((i for i in MOCK_ISSUES if i["id"] == issue_id), None)
 
 
+def mock_issue_rows():
+    """MOCK_ISSUES mapped to the pipeline issues-table shape (for seeding the DB)."""
+    return [
+        {"id": i["id"], "class": i["class"], "status": i["status"], "lat": i["lat"],
+         "lng": i["lng"], "confidence": i["confidence"], "severity": i["severity"],
+         "first_seen": i["timestamp"], "last_seen": i["timestamp"], "evidence_count": 1}
+        for i in MOCK_ISSUES
+    ]
+
+
 if __name__ == "__main__":
     # Self-check: filters compose, and get_issue round-trips a known ID.
     assert len(list_issues()) == len(MOCK_ISSUES)
