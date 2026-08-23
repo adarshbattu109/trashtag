@@ -98,3 +98,23 @@ class Issue:
     first_seen: str
     last_seen: str
     evidence_count: int
+
+
+# Allowed issue lifecycle transitions (reviewer/auto). RESOLVED/REJECTED are terminal.
+TRANSITIONS: dict[IssueStatus, set[IssueStatus]] = {
+    IssueStatus.NEW: {IssueStatus.VERIFIED, IssueStatus.REJECTED},
+    IssueStatus.VERIFIED: {IssueStatus.FILED, IssueStatus.REJECTED},
+    IssueStatus.FILED: {
+        IssueStatus.IN_PROGRESS,
+        IssueStatus.RESOLVED,
+        IssueStatus.REJECTED,
+    },
+    IssueStatus.IN_PROGRESS: {IssueStatus.RESOLVED, IssueStatus.REJECTED},
+    IssueStatus.RESOLVED: set(),
+    IssueStatus.REJECTED: set(),
+}
+
+
+def can_transition(frm: IssueStatus, to: IssueStatus) -> bool:
+    """True if moving an issue from `frm` to `to` is a legal lifecycle step."""
+    return to in TRANSITIONS.get(frm, set())

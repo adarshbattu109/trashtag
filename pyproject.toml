@@ -1,6 +1,6 @@
 [project]
 name = "trashtag"
-version = "0.1.0"
+version = "0.2.0"
 description = "Tag the trash. Flag the roads. — civic pothole & garbage-dump reporting platform"
 readme = "README.md"
 authors = [
@@ -26,6 +26,11 @@ trashtag = "trashtag.app:main"
 requires = ["uv_build>=0.10.9,<0.13.0"]
 build-backend = "uv_build"
 
+[tool.ruff]
+# Ruff formats Python code blocks embedded in Markdown; docs snippets are illustrative
+# (some are intentionally partial pseudocode), so keep the formatter/linter to real source.
+extend-exclude = ["docs"]
+
 [tool.ruff.lint.flake8-bugbear]
 # FastAPI's Query()/Path()/Depends() in argument defaults is the framework idiom, not the
 # B008 mutable-default trap — the calls are what wire request parsing to the parameter.
@@ -39,4 +44,5 @@ testpaths = ["tests"]
 dev = [
     "httpx>=0.27",
     "pytest>=9.1.1",
+    "ruff>=0.16",
 ]

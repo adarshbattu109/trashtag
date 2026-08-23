@@ -24,3 +24,7 @@ VLM_PORT: int = int(os.getenv("TRASHTAG_VLM_PORT", "11434"))
 VLM_PATH: str = os.getenv("TRASHTAG_VLM_PATH", "/v1")
 VLM_MODEL: str = os.getenv("TRASHTAG_VLM_MODEL", "llama3.2-vision")
 VLM_API_KEY: str = os.getenv("TRASHTAG_VLM_API_KEY", "")
+
+# Background worker config (in-process report processing loop)
+WORKER_ENABLED: bool = os.getenv("TRASHTAG_WORKER", "on") != "off"
+WORKER_POLL_SECONDS: float = float(os.getenv("TRASHTAG_WORKER_POLL_SECONDS", "5"))

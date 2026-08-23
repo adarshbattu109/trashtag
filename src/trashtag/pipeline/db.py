@@ -22,6 +22,7 @@ from trashtag.pipeline.models import (
     RawDetection,
     Report,
     Severity,
+    can_transition,
     new_id,
     now_iso,
 )
@@ -67,13 +68,22 @@ CREATE TABLE IF NOT EXISTS issues (
     severity       TEXT NOT NULL,
     first_seen     TEXT NOT NULL,
     last_seen      TEXT NOT NULL,
-    evidence_count INTEGER NOT NULL DEFAULT 0
+    evidence_count INTEGER NOT NULL DEFAULT 0,
+    note           TEXT
 );
 CREATE TABLE IF NOT EXISTS issue_evidence (
     id           TEXT PRIMARY KEY,
     issue_id     TEXT NOT NULL REFERENCES issues(id),
     detection_id TEXT NOT NULL REFERENCES raw_detections(id),
     added_at     TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS issue_events (
+    id        TEXT PRIMARY KEY,
+    issue_id  TEXT NOT NULL REFERENCES issues(id),
+    event     TEXT NOT NULL,      -- e.g. status:verified | severity:high | note
+    detail    TEXT,
+    source    TEXT NOT NULL DEFAULT 'ops-dashboard',
+    at        TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_raw_unclustered ON raw_detections(clustered);
 CREATE INDEX IF NOT EXISTS idx_issue_class_status ON issues(class, status);
@@ -357,6 +367,67 @@ def list_issues(
 def get_issue(conn: sqlite3.Connection, issue_id: str) -> dict | None:
     row = conn.execute("SELECT * FROM issues WHERE id = ?", (issue_id,)).fetchone()
     return dict(row) if row else None
+
+
+def update_issue(conn, issue_id, *, status=None, severity=None, note=None):
+    """Update an issue's status/severity/note with lifecycle validation; returns the row dict."""
+    current = get_issue(conn, issue_id)
+    if current is None:
+        raise KeyError(issue_id)
+    if status is not None:
+        frm, to = (
+            IssueStatus(current["status"]),
+            IssueStatus(status),
+        )  # ValueError on bad value
+        if frm != to and not can_transition(frm, to):
+            raise ValueError(f"Illegal transition {frm} -> {to}")
+        conn.execute("UPDATE issues SET status = ? WHERE id = ?", (str(to), issue_id))
+        _event(conn, issue_id, f"status:{to}")
+    if severity is not None:
+        sev = Severity(severity)  # ValueError on bad value
+        conn.execute(
+            "UPDATE issues SET severity = ? WHERE id = ?", (str(sev), issue_id)
+        )
+        _event(conn, issue_id, f"severity:{sev}")
+    if note is not None:
+        conn.execute("UPDATE issues SET note = ? WHERE id = ?", (note, issue_id))
+        _event(conn, issue_id, "note", note)
+    conn.commit()
+    return get_issue(conn, issue_id)
+
+
+def _event(conn, issue_id, event, detail=None):
+    conn.execute(
+        "INSERT INTO issue_events (id, issue_id, event, detail, at) VALUES (?,?,?,?,?)",
+        (new_id("ev"), issue_id, event, detail, now_iso()),
+    )
+
+
+def issue_evidence_media(conn, issue_id):
+    """media_path of the issue's earliest evidence photo, or None."""
+    row = conn.execute(
+        """SELECT r.media_path FROM issue_evidence e
+           JOIN raw_detections d ON d.id = e.detection_id
+           JOIN reports r ON r.id = d.report_id
+           WHERE e.issue_id = ? ORDER BY e.added_at LIMIT 1""",
+        (issue_id,),
+    ).fetchone()
+    return row["media_path"] if row else None
+
+
+def seed_issues(conn, issues):
+    """Insert issue rows if absent (idempotent by id). Returns count inserted."""
+    before = conn.total_changes
+    for i in issues:
+        conn.execute(
+            """INSERT OR IGNORE INTO issues (id, class, status, lat, lng, confidence, severity,
+               first_seen, last_seen, evidence_count, note)
+               VALUES (:id,:class,:status,:lat,:lng,:confidence,:severity,
+               :first_seen,:last_seen,:evidence_count,:note)""",
+            {**i, "note": i.get("note")},
+        )
+    conn.commit()
+    return conn.total_changes - before
 
 
 if __name__ == "__main__":

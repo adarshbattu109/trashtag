@@ -337,6 +337,18 @@ body{
   font-family:var(--display);font-weight:600;text-transform:uppercase;font-size:12px;letter-spacing:.05em;
   border:1px solid var(--stamp-red);color:var(--stamp-red);background:transparent;border-radius:3px;padding:3px 8px;cursor:pointer;
 }
+
+/* ---- toast ---- */
+.toast{
+  position:fixed;bottom:20px;right:20px;z-index:3000;
+  background:var(--asphalt-700);color:var(--chalk-100);
+  border:1px solid var(--line);border-radius:4px;
+  padding:12px 16px;font-size:13px;max-width:360px;
+  box-shadow:0 8px 22px rgba(0,0,0,.5);
+  animation:toast-in .2s ease-out;
+}
+@keyframes toast-in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
 .hidden{display:none !important}
 
 /* ---- responsive ---- */
@@ -513,27 +525,35 @@ body{
 <script>
 "use strict";
 
-const MOCK_ISSUES = [
-  {id:"A-0442",class:"pothole",status:"new",confidence:0.91,lat:18.5204,lng:73.8567,ward:"Shivajinagar",severity:"high",timestamp:"2026-08-23T07:42:00",days_open:0,address:"FC Road, near Deccan Gymkhana, Shivajinagar"},
-  {id:"A-0441",class:"garbage",status:"new",confidence:0.87,lat:18.5089,lng:73.8256,ward:"Kothrud",severity:"medium",timestamp:"2026-08-23T07:15:00",days_open:0,address:"Paud Road, opp. Mahatma Society, Kothrud"},
-  {id:"A-0439",class:"pothole",status:"verified",confidence:0.94,lat:18.5314,lng:73.8446,ward:"Shivajinagar",severity:"high",timestamp:"2026-08-22T19:03:00",days_open:1,address:"JM Road, near Sambhaji Park, Deccan"},
-  {id:"A-0437",class:"pothole",status:"filed",confidence:0.88,lat:18.5074,lng:73.8077,ward:"Kothrud",severity:"medium",timestamp:"2026-08-21T14:20:00",days_open:2,address:"Karve Road, near Nal Stop, Kothrud"},
-  {id:"A-0435",class:"garbage",status:"new",confidence:0.79,lat:18.4636,lng:73.8682,ward:"Dhankawadi",severity:"high",timestamp:"2026-08-23T06:48:00",days_open:0,address:"Katraj-Kondhwa Road, near Katraj Lake"},
-  {id:"A-0433",class:"pothole",status:"new",confidence:0.83,lat:18.5679,lng:73.9143,ward:"Nagar Road",severity:"medium",timestamp:"2026-08-23T05:31:00",days_open:0,address:"Viman Nagar Road, near Phoenix Marketcity"},
-  {id:"A-0431",class:"garbage",status:"verified",confidence:0.90,lat:18.5018,lng:73.8636,ward:"Bhavani Peth",severity:"high",timestamp:"2026-08-22T11:09:00",days_open:1,address:"Swargate Chowk, near ST Depot"},
-  {id:"A-0428",class:"pothole",status:"resolved",confidence:0.86,lat:18.5793,lng:73.7389,ward:"Hinjawadi",severity:"medium",timestamp:"2026-08-18T09:00:00",days_open:5,address:"Hinjawadi Phase 1, near Rajiv Gandhi Infotech Park"},
-  {id:"A-0425",class:"garbage",status:"filed",confidence:0.81,lat:18.5645,lng:73.7769,ward:"Aundh",severity:"medium",timestamp:"2026-08-20T16:44:00",days_open:3,address:"Baner Road, near Balewadi Stadium"},
-  {id:"A-0422",class:"pothole",status:"rejected",confidence:0.62,lat:18.5158,lng:73.8785,ward:"Camp",severity:"low",timestamp:"2026-08-22T21:12:00",days_open:1,address:"MG Road, Camp — wet-road glare, not a pothole"},
-  {id:"A-0419",class:"garbage",status:"new",confidence:0.77,lat:18.4967,lng:73.9089,ward:"Hadapsar",severity:"medium",timestamp:"2026-08-23T04:57:00",days_open:0,address:"Hadapsar-Saswad Road, near Magarpatta"},
-  {id:"A-0415",class:"pothole",status:"in_progress",confidence:0.92,lat:18.5510,lng:73.8410,ward:"Shivajinagar",severity:"high",timestamp:"2026-08-19T13:38:00",days_open:4,address:"Model Colony, near Shivaji Housing Society"}
-];
+let issues = [];
 
-// A live-arriving detection (demonstrates the ambient "live system" cue).
-// Kept separate from MOCK_ISSUES so canonical values are never mutated.
-const LIVE_INCOMING = {id:"A-0443",class:"garbage",status:"new",confidence:0.84,lat:18.5261,lng:73.8542,ward:"Shivajinagar",severity:"medium",timestamp:"2026-08-23T07:58:00",days_open:0,address:"Ghole Road, near Balgandharva Rangmandir, Shivajinagar",_incoming:true};
+async function loadIssues() {
+  const res = await fetch('/v1/issues');
+  issues = res.ok ? (await res.json()).issues : [];
+  renderAll();
+}
 
-// Working copy the UI mutates (verify/reject/merge). Canonical const untouched.
-let issues = MOCK_ISSUES.map(i => ({...i}));
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+async function updateIssue(id, patch) {
+  const res = await fetch(`/v1/issues/${id}`, {
+    method: 'PATCH',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) {
+    const msg = res.status === 422 ? 'That change isn\'t allowed.' : 'Try again.';
+    toast(`Couldn't update ${id}. ${msg}`);
+    return;
+  }
+  await loadIssues();
+}
 
 // A one-off filing failure for the filed-log error state demo.
 const FILING_ERROR_ID = "A-0425";
@@ -558,15 +578,15 @@ function matches(issue){
   if(!state.classes.has(issue.class)) return false;
   if(state.status !== "all" && issue.status !== state.status) return false;
   if(state.ward !== "all" && issue.ward !== state.ward) return false;
-  const d = issue.timestamp.slice(0,10);
+  const d = issue.first_seen.slice(0,10);
   if(state.from && d < state.from) return false;
   if(state.to && d > state.to) return false;
   return true;
 }
 
-// ---- evidence thumbnail (generated, class-aware, deterministic per id) ----
+// ---- evidence thumbnail fallback SVG (generated, class-aware, deterministic per id) ----
 function hashSeed(id){ let h=0; for(const c of id) h=(h*31+c.charCodeAt(0))>>>0; return h; }
-function thumb(issue){
+function evidenceSvg(issue){
   const s = hashSeed(issue.id);
   const jitter = (n) => ((s >> n) & 7) - 3;
   if(issue.class === "pothole"){
@@ -590,6 +610,11 @@ function thumb(issue){
   </svg>`;
 }
 
+function evidenceFallback(img){
+  const issue = issues.find(i => i.id === img.dataset.id);
+  if (issue) img.outerHTML = evidenceSvg(issue);
+}
+
 // ---- render: docket queue ----
 const queueList = document.getElementById("queue-list");
 const queueCount = document.getElementById("queue-count");
@@ -598,29 +623,30 @@ let staggerBudget = 6;
 function docketHTML(issue){
   const sevClass = issue.severity === "high" ? "docket__sev--high" : "";
   const coord = `${issue.lat.toFixed(4)}, ${issue.lng.toFixed(4)}`;
-  const ts = issue.timestamp.replace("T"," ");
-  const isDecided = issue.status !== "new";
+  const ts = issue.first_seen.replace("T"," ");
+  const daysOpen = Math.floor((Date.now() - new Date(issue.first_seen)) / 86400000);
   const actions = `
     <button class="docket__btn docket__btn--verify" data-act="verify" data-id="${issue.id}" ${issue.status==="verified"||issue.status==="rejected"?"disabled":""}>Verify</button>
     <button class="docket__btn docket__btn--reject" data-act="reject" data-id="${issue.id}" ${issue.status==="rejected"?"disabled":""}>Reject</button>
     <button class="docket__btn docket__btn--merge" data-act="merge" data-id="${issue.id}">Merge with nearby</button>`;
+  const evidenceImg = `<img class="docket__photo" src="/v1/issues/${issue.id}/evidence?w=600" alt="evidence for ${issue.id}" data-id="${issue.id}" onerror="evidenceFallback(this)">`;
   return `
-  <article class="docket docket--${issue.class} ${issue.status==="new"?"docket--new":""} ${state.selected===issue.id?"docket--selected":""} ${issue._incoming?"docket--incoming":""}"
+  <article class="docket docket--${issue.class} ${issue.status==="new"?"docket--new":""} ${state.selected===issue.id?"docket--selected":""}"
            data-id="${issue.id}" tabindex="0" aria-label="Detection ${issue.id}, ${issue.class}, status ${STATUS_LABEL[issue.status]}">
     <div class="docket__stamp docket__stamp--${issue.status}">${STATUS_LABEL[issue.status]}</div>
-    ${thumb(issue)}
+    ${evidenceImg}
     <div class="docket__body">
       <div class="docket__classline">
         <span class="docket__classdot docket__classdot--${issue.class}"></span>
         <span class="docket__class">${issue.class}</span>
         <span class="docket__sev ${sevClass}">${issue.severity}</span>
       </div>
-      <div class="docket__addr">${issue.address}</div>
+      <div class="docket__addr">${coord} · —</div>
       <div class="docket__data">
         <span>ID <b>#${issue.id}</b></span>
         <span>CONF <b>${issue.confidence.toFixed(2)}</b></span>
         <span>GPS <b>${coord}</b></span>
-        <span>OPEN <b>${issue.days_open}d</b></span>
+        <span>OPEN <b>${daysOpen}d</b></span>
         <span style="grid-column:1/-1">TS <b>${ts}</b></span>
       </div>
       <div class="docket__actions">${actions}</div>
@@ -678,11 +704,12 @@ function classIcon(i){
 }
 
 function popupHTML(i){
+  const coord = `${i.lat.toFixed(4)}, ${i.lng.toFixed(4)}`;
   return `<div class="tt-popup">
     <div class="tt-popup__id">#${i.id}</div>
     <div class="tt-popup__row">${i.class} · ${STATUS_LABEL[i.status]}</div>
     <div class="tt-popup__row">conf ${i.confidence.toFixed(2)}</div>
-    <div class="tt-popup__addr">${i.address}</div></div>`;
+    <div class="tt-popup__addr">${coord}</div></div>`;
 }
 
 function renderMap(){
@@ -694,7 +721,7 @@ function renderMap(){
     const m = L.marker([i.lat, i.lng], {
       icon:classIcon(i),
       keyboard:true,
-      title:`Detection ${i.id}, ${i.class}, ${STATUS_LABEL[i.status]}, ward ${i.ward}`
+      title:`Detection ${i.id}, ${i.class}, ${STATUS_LABEL[i.status]}`
     });
     m.bindPopup(popupHTML(i));
     m.on("click", () => selectIssue(i.id, {scroll:true}));
@@ -713,6 +740,7 @@ function renderFiled(){
   const list = issues.filter(i => FILED_STATUSES.has(i.status) && matches(i));
   if(!list.length){ body.innerHTML = `<tr><td colspan="7" style="color:var(--concrete-400)">No filed detections match the current filters.</td></tr>`; return; }
   body.innerHTML = list.map(i => {
+    const daysOpen = Math.floor((Date.now() - new Date(i.first_seen)) / 86400000);
     const err = i.id === FILING_ERROR_ID;
     const errRow = err ? `<tr class="filed__row--error"><td colspan="7">
       <div class="filed__error">Detection #${i.id} could not be filed — authority endpoint unreachable. Retry or export manually.
@@ -720,10 +748,10 @@ function renderFiled(){
     return `<tr>
       <td class="filed__id">#${i.id}</td>
       <td>${i.class}</td>
-      <td>${i.ward}</td>
+      <td>—</td>
       <td class="filed__coord">${i.lat.toFixed(4)}, ${i.lng.toFixed(4)}</td>
-      <td class="filed__ts">${i.timestamp.slice(0,10)}</td>
-      <td>${i.days_open}d</td>
+      <td class="filed__ts">${i.first_seen.slice(0,10)}</td>
+      <td>${daysOpen}d</td>
       <td class="filed__status filed__status--${i.status}">${STATUS_LABEL[i.status]}</td>
     </tr>${errRow}`;
   }).join("");
@@ -759,16 +787,12 @@ function selectIssue(id, {scroll=true, openPopup=false} = {}){
 
 // ---- actions ----
 function applyAction(id, act){
-  const issue = issues.find(i => i.id === id);
-  if(!issue) return;
-  if(act === "verify") issue.status = "verified";
-  else if(act === "reject") issue.status = "rejected";
-  else if(act === "merge"){ issues = issues.filter(i => i.id !== id); } // merged into nearby duplicate
-  delete issue._incoming;
-  updatePending(); renderAll();
+  if(act === "verify") updateIssue(id, {status: 'verified'});
+  else if(act === "reject") updateIssue(id, {status: 'rejected'});
+  else if(act === "merge") updateIssue(id, {status: 'rejected', note: 'merged: duplicate of nearby'});
 }
 
-function renderAll(){ renderQueue(); renderMap(); renderFiled(); }
+function renderAll(){ renderQueue(); renderMap(); renderFiled(); updatePending(); }
 
 // ================= EVENTS =================
 // filter: class
@@ -780,11 +804,8 @@ document.querySelectorAll(".f-class").forEach(cb => cb.addEventListener("change"
 document.querySelectorAll('input[name="f-status"]').forEach(r => r.addEventListener("change", e => {
   state.status = e.target.value; renderAll();
 }));
-// filter: ward
+// filter: ward (populated from live data after load)
 const wardSel = document.getElementById("f-ward");
-[...new Set(MOCK_ISSUES.map(i=>i.ward))].sort().forEach(w => {
-  const o = document.createElement("option"); o.value=w; o.textContent=w; wardSel.appendChild(o);
-});
 wardSel.addEventListener("change", e => { state.ward = e.target.value; renderAll(); });
 // filter: dates
 document.getElementById("f-from").addEventListener("change", e => { state.from = e.target.value || null; renderAll(); });
@@ -842,9 +863,9 @@ document.getElementById("drawer-toggle").addEventListener("click", e => {
 });
 
 // ================= SUBMIT REPORT MODAL =================
-// Citizen report flow. On success the report enters the pipeline DB (§2.1); the dashboard's
-// own queue keeps showing MOCK_ISSUES until /v1/issues is wired to the pipeline (separate step),
-// so a freshly submitted report will NOT appear in the queue yet — that's expected.
+// Citizen report flow. On success the report enters the pipeline DB (§2.1); the dashboard
+// fetches live from /v1/issues, so a freshly submitted report appears after a worker poll
+// (~5s) + manual page refresh.
 (function(){
   const modal = document.getElementById("submit-modal");
   const openBtn = document.getElementById("open-submit");
@@ -1045,21 +1066,7 @@ document.getElementById("drawer-toggle").addEventListener("click", e => {
 
 // ================= INIT =================
 initMap();
-updatePending();
-renderAll();
-
-// ambient "live" cue — one new detection slides into the queue a few seconds after load.
-const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-setTimeout(() => {
-  if(issues.some(i => i.id === LIVE_INCOMING.id)) return;
-  const incoming = {...LIVE_INCOMING};
-  if(reduceMotion) delete incoming._incoming; // no slide/flash under reduced motion
-  issues.unshift(incoming);
-  updatePending();
-  if(state.view === "review"){ renderQueue(); renderMap(); }
-  // clear the incoming flag so it doesn't re-animate on later renders
-  setTimeout(() => { const it = issues.find(i=>i.id===LIVE_INCOMING.id); if(it) delete it._incoming; }, 1300);
-}, 4000);
+document.addEventListener('DOMContentLoaded', loadIssues);
 </script>
 </body>
 </html>
